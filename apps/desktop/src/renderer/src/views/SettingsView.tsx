@@ -88,10 +88,13 @@ function ProvidersTab() {
             onClick={() => setSelected(p.id)}
             className={clsx(
               'flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-sm',
-              selected === p.id ? 'bg-muted font-medium' : 'text-fg-soft hover:bg-muted/70',
+              selected === p.id
+                ? 'bg-accent/10 font-medium text-accent'
+                : 'text-fg-soft hover:bg-muted/70',
             )}
           >
             <span
+              title={p.enabled ? '已启用' : '已停用'}
               className={clsx(
                 'size-1.5 shrink-0 rounded-full',
                 p.enabled ? 'bg-emerald-500' : 'bg-line-strong',
@@ -105,7 +108,9 @@ function ProvidersTab() {
           onClick={() => setSelected('new')}
           className={clsx(
             'flex h-9 w-full items-center gap-2 rounded-lg px-3 text-sm',
-            selected === 'new' ? 'bg-muted font-medium' : 'text-fg-soft hover:bg-muted/70',
+            selected === 'new'
+              ? 'bg-accent/10 font-medium text-accent'
+              : 'text-fg-soft hover:bg-muted/70',
           )}
         >
           <Plus className="size-4" />
