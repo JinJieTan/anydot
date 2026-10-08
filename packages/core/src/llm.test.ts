@@ -1,6 +1,7 @@
 import { jsonSchema, tool } from 'ai'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { generateImages } from './images'
+import { createVideo, downloadVideo, waitForVideo } from './videos'
 import { defineTools, streamChat, toModelMessages, type ChatEvent, type ModelRef } from './llm'
 import type { StoredMessage } from './messages'
 import { listModels } from './models'
@@ -110,7 +111,8 @@ describe('streamChat', () => {
 describe('listModels', () => {
   it('lists and classifies models', async () => {
     const models = await listModels(server.url, 'sk-test')
-    expect(models.map((m) => m.id)).toEqual(['claude-sonnet-5-5', 'gpt-5', 'gpt-image-2'])
+    expect(models.map((m) => m.id)).toEqual(['claude-sonnet-5-5', 'gpt-5', 'gpt-image-2', 'sora-2'])
+    expect(models.find((m) => m.id === 'sora-2')?.capabilities).toEqual(['video'])
     expect(models.find((m) => m.id === 'gpt-image-2')?.capabilities).toEqual(['image'])
     expect(models.find((m) => m.id === 'gpt-5')?.capabilities).toContain('vision')
   })
@@ -200,6 +202,35 @@ describe('response event', () => {
       }),
     )
     expect(server.requests[before]!.toolResults).toEqual(['12:00'])
+  })
+})
+
+describe('videos', () => {
+  it('creates, polls and downloads a video', async () => {
+    const opts = { baseUrl: server.url, apiKey: 'sk-test' }
+    const job = await createVideo({
+      ...opts,
+      model: 'sora-2',
+      prompt: 'a cat',
+      seconds: '4',
+      size: '1280x720',
+    })
+    expect(job.status).toBe('queued')
+    const progress: number[] = []
+    const done = await waitForVideo({ ...opts, id: job.id, intervalMs: 10 }, (j) =>
+      progress.push(j.progress ?? 0),
+    )
+    expect(done.status).toBe('completed')
+    expect(progress).toEqual([0, 40, 100])
+    const file = await downloadVideo({ ...opts, id: job.id })
+    expect(file.mime).toBe('video/mp4')
+    expect(new TextDecoder().decode(file.data.slice(4, 8))).toBe('ftyp')
+  })
+
+  it('reports API errors', async () => {
+    await expect(
+      downloadVideo({ baseUrl: server.url, apiKey: 'sk-test', id: 'nope' }),
+    ).rejects.toThrow(/404/)
   })
 })
 

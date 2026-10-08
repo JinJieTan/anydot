@@ -1,6 +1,6 @@
 # 技术方案与开发计划
 
-> 状态：v1.1 · 2026-10-08（平台与接口已确认）
+> 状态：v1.2 · 2026-10-08（M0–M3 完成，M4 部分完成）
 
 ## 1. 产品定位
 
@@ -187,12 +187,14 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 
 ### M4 · 增强
 
-- [ ] MCP 客户端
-- [ ] 浏览器工具（Playwright）、computer use（截屏 + 键鼠）
-- [ ] 视频模型
-- [ ] Capacitor 打包 iOS / Android
-- [ ] 自动更新、macOS 签名与公证、Windows 签名
-- [ ] E2E 加密同步（WebDAV / S3）
+- [x] MCP 客户端（stdio / HTTP / SSE，配置加密保存，走同一套权限）
+- [x] 视频模型（OpenAI Videos API：创建 → 轮询 → 下载；应用重启后自动继续轮询）
+- [x] 长任务上下文自动压缩（摘要持久化，下一轮从摘要继续）
+- [ ] 浏览器工具（Playwright）、computer use（截屏 + 键鼠）—— 需要下载浏览器内核 / 申请系统权限，建议单独评估
+- [ ] Capacitor 打包 iOS / Android —— 需要 Xcode、Android SDK 和开发者账号
+- [ ] 自动更新 —— 需要先确定发布渠道（GitHub Releases 或自建下载站）
+- [ ] macOS 签名与公证、Windows 签名 —— 需要证书
+- [ ] E2E 加密同步（WebDAV / S3）与新设备迁移
 
 ## 9. 风险与待确认事项
 

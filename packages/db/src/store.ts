@@ -83,10 +83,18 @@ export interface MessageRow extends StoredMessage {
 export type ImageJobStatus = 'pending' | 'running' | 'done' | 'error'
 
 export interface ImageJobParams {
+  /** Media jobs share this table; absent means image. */
+  kind?: 'image' | 'video'
   size?: string
   quality?: string
   n?: number
   background?: 'auto' | 'transparent' | 'opaque'
+  /** video: duration in seconds, e.g. "8" */
+  seconds?: string
+  /** video: provider job id, so polling can resume after a restart */
+  remoteId?: string
+  /** video: 0-100 */
+  progress?: number
 }
 
 export interface ImageJobRow {
@@ -769,6 +777,29 @@ export class Store {
     return this.getImageJob(id)!
   }
 
+  /** Merge into a job's params (video progress, remote id). */
+  updateImageJobParams(id: string, patch: Partial<ImageJobParams>): ImageJobRow {
+    const job = this.getImageJob(id)
+    if (!job) throw new Error(`job ${id} not found`)
+    this.run(
+      'UPDATE image_jobs SET params_json = ?, updated_at = ?, device_id = ? WHERE id = ?',
+      JSON.stringify({ ...job.params, ...patch }),
+      this.now(),
+      this.deviceId,
+      id,
+    )
+    return this.getImageJob(id)!
+  }
+
+  /** Video jobs that were still generating when the app quit, with a remote id to resume. */
+  resumableVideoJobs(): ImageJobRow[] {
+    return this.all(
+      "SELECT * FROM image_jobs WHERE deleted_at IS NULL AND status IN ('pending', 'running')",
+    )
+      .map(this.toImageJob)
+      .filter((j) => j.params.kind === 'video' && !!j.params.remoteId)
+  }
+
   deleteImageJob(id: string): void {
     const t = this.now()
     this.run(
@@ -780,13 +811,21 @@ export class Store {
     )
   }
 
+  /** Fail jobs interrupted by a quit, except video jobs that can resume polling. */
   recoverImageJobs(): number {
-    return Number(
+    let n = 0
+    for (const r of this.all("SELECT * FROM image_jobs WHERE status IN ('pending', 'running')").map(
+      this.toImageJob,
+    )) {
+      if (r.params.kind === 'video' && r.params.remoteId) continue
       this.run(
-        "UPDATE image_jobs SET status = 'error', error = '应用在生成过程中退出', updated_at = ? WHERE status IN ('pending', 'running')",
+        "UPDATE image_jobs SET status = 'error', error = '应用在生成过程中退出', updated_at = ? WHERE id = ?",
         this.now(),
-      ).changes,
-    )
+        r.id,
+      )
+      n++
+    }
+    return n
   }
 
   // ── trusted devices ────────────────────────────────────────

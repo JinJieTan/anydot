@@ -109,12 +109,33 @@ if (!app.requestSingleInstanceLock()) {
       const sha = new URL(req.url).pathname.replace(/^\//, '')
       try {
         const data = await readFile(blobs.pathOf(sha))
-        return new Response(data, {
-          headers: {
-            'Content-Type': blobs.mime(sha),
-            'Cache-Control': 'max-age=31536000, immutable',
-          },
-        })
+        const headers: Record<string, string> = {
+          'Content-Type': blobs.mime(sha),
+          'Cache-Control': 'max-age=31536000, immutable',
+          'Accept-Ranges': 'bytes',
+        }
+        // Video seeking needs byte ranges.
+        const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '')
+        if (range && (range[1] || range[2])) {
+          const size = data.byteLength
+          const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]))
+          const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1
+          if (start >= size || start > end) {
+            return new Response(null, {
+              status: 416,
+              headers: { 'Content-Range': `bytes */${size}` },
+            })
+          }
+          return new Response(data.subarray(start, end + 1), {
+            status: 206,
+            headers: {
+              ...headers,
+              'Content-Range': `bytes ${start}-${end}/${size}`,
+              'Content-Length': String(end - start + 1),
+            },
+          })
+        }
+        return new Response(data, { headers })
       } catch {
         return new Response('not found', { status: 404 })
       }
@@ -133,6 +154,7 @@ if (!app.requestSingleInstanceLock()) {
       },
     )
     images = new ImageService(s, blobs, (job) => emit('image', job))
+    images.resume()
     remote = new RemoteService(
       s,
       chat,

@@ -160,6 +160,22 @@ describe('image jobs and settings', () => {
     expect(store.listImageJobs()).toHaveLength(1)
   })
 
+  it('keeps resumable video jobs across a restart', () => {
+    const img = store.createImageJob({ prompt: 'a', params: {}, modelId: 'm', sourceBlobIds: [] })
+    const vid = store.createImageJob({
+      prompt: 'b',
+      params: { kind: 'video' },
+      modelId: 'sora-2',
+      sourceBlobIds: [],
+    })
+    store.updateImageJobParams(vid.id, { remoteId: 'video_1', progress: 40 })
+    expect(store.recoverImageJobs()).toBe(1)
+    expect(store.getImageJob(img.id)?.status).toBe('error')
+    expect(store.resumableVideoJobs().map((j) => j.params)).toEqual([
+      { kind: 'video', remoteId: 'video_1', progress: 40 },
+    ])
+  })
+
   it('stores settings as JSON', () => {
     expect(store.getSetting('theme', 'system')).toBe('system')
     store.setSetting('theme', 'dark')

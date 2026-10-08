@@ -21,7 +21,8 @@ export function ModelPicker({
 }: {
   value: string | null
   onChange: (id: string) => void
-  capability?: Capability
+  /** Show models with any of these capabilities. */
+  capability?: Capability | Capability[]
   align?: 'left' | 'right'
   direction?: 'up' | 'down'
 }) {
@@ -30,10 +31,10 @@ export function ModelPicker({
   const [q, setQ] = useState('')
   const ref = useDismiss(open, () => setOpen(false))
 
-  const usable = useMemo(
-    () => models.filter((m) => m.capabilities.includes(capability)),
-    [models, capability],
-  )
+  const usable = useMemo(() => {
+    const wanted = Array.isArray(capability) ? capability : [capability]
+    return models.filter((m) => wanted.some((c) => m.capabilities.includes(c)))
+  }, [models, capability])
   const current = usable.find((m) => m.id === value)
 
   const groups = useMemo(() => {

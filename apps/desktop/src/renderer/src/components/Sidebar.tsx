@@ -89,7 +89,7 @@ export function Sidebar({
           onClick={() => setView('images')}
           icon={<Image className="size-4" />}
         >
-          生图
+          生图 / 视频
         </NavItem>
       </nav>
 

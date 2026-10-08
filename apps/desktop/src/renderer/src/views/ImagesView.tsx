@@ -31,7 +31,8 @@ const EXT: Record<string, string> = {
 export function ImagesView() {
   const { models, settings, updateSettings, setView } = useApp()
   const imageModels = useMemo(
-    () => models.filter((m) => m.capabilities.includes('image')),
+    () =>
+      models.filter((m) => m.capabilities.includes('image') || m.capabilities.includes('video')),
     [models],
   )
   const [jobs, setJobs] = useState<ImageJobDTO[]>([])
@@ -48,6 +49,7 @@ export function ImagesView() {
 
   const modelId =
     imageModels.find((m) => m.id === settings.defaultImageModelId)?.id ?? imageModels[0]?.id ?? null
+  const isVideo = !!imageModels.find((m) => m.id === modelId)?.capabilities.includes('video')
 
   useEffect(() => {
     void invoke('images.list').then(setJobs)
@@ -77,13 +79,20 @@ export function ImagesView() {
       invoke('images.generate', {
         modelId,
         prompt,
-        params: {
-          ...params,
-          size: params.size === 'auto' ? undefined : params.size,
-          quality: params.quality === 'auto' ? undefined : params.quality,
-          background: params.background === 'auto' ? undefined : params.background,
-        },
-        sourceBlobIds: refs.map((r) => r.blob),
+        params: isVideo
+          ? {
+              seconds: params.seconds ?? '8',
+              size: params.size === 'auto' ? undefined : params.size,
+            }
+          : {
+              ...params,
+              seconds: undefined,
+              size: params.size === 'auto' ? undefined : params.size,
+              quality: params.quality === 'auto' ? undefined : params.quality,
+              background: params.background === 'auto' ? undefined : params.background,
+            },
+        // Video takes at most one reference (first frame).
+        sourceBlobIds: (isVideo ? refs.slice(0, 1) : refs).map((r) => r.blob),
       }),
     )
     if (job) setJobs((list) => [job, ...list.filter((j) => j.id !== job.id)])
@@ -101,7 +110,7 @@ export function ImagesView() {
   return (
     <div className="flex h-full flex-col">
       <header className="drag flex h-12 shrink-0 items-center border-b border-line px-4">
-        <h1 className="text-sm font-medium">生图</h1>
+        <h1 className="text-sm font-medium">生图 / 视频</h1>
       </header>
       <div className="flex min-h-0 flex-1">
         {/* ── form ── */}
@@ -117,7 +126,7 @@ export function ImagesView() {
             <Field label="模型">
               <div className="rounded-lg border border-line">
                 <ModelPicker
-                  capability="image"
+                  capability={['image', 'video']}
                   direction="down"
                   value={modelId}
                   onChange={(id) => void updateSettings({ defaultImageModelId: id })}
@@ -138,7 +147,9 @@ export function ImagesView() {
             />
           </Field>
 
-          <Field label="参考图（可选，用于编辑或风格参考）">
+          <Field
+            label={isVideo ? '首帧图（可选，只用第一张）' : '参考图（可选，用于编辑或风格参考）'}
+          >
             <div
               className="flex flex-wrap gap-2"
               onDragOver={(e) => e.preventDefault()}
@@ -186,59 +197,86 @@ export function ImagesView() {
             </div>
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="尺寸">
-              <Select
-                value={params.size}
-                onChange={(e) => setParams({ ...params, size: e.target.value })}
-              >
-                {SIZES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="质量">
-              <Select
-                value={params.quality}
-                onChange={(e) => setParams({ ...params, quality: e.target.value })}
-              >
-                {QUALITIES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="数量">
-              <Select
-                value={params.n}
-                onChange={(e) => setParams({ ...params, n: Number(e.target.value) })}
-              >
-                {[1, 2, 3, 4].map((n) => (
-                  <option key={n} value={n}>
-                    {n} 张
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="背景">
-              <Select
-                value={params.background}
-                onChange={(e) =>
-                  setParams({
-                    ...params,
-                    background: e.target.value as ImageJobParams['background'],
-                  })
-                }
-              >
-                <option value="auto">自动</option>
-                <option value="opaque">不透明</option>
-                <option value="transparent">透明</option>
-              </Select>
-            </Field>
-          </div>
+          {isVideo ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="时长">
+                <Select
+                  value={params.seconds ?? '8'}
+                  onChange={(e) => setParams({ ...params, seconds: e.target.value })}
+                >
+                  {['4', '8', '12'].map((x) => (
+                    <option key={x} value={x}>
+                      {x} 秒
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="画面">
+                <Select
+                  value={params.size}
+                  onChange={(e) => setParams({ ...params, size: e.target.value })}
+                >
+                  <option value="auto">默认</option>
+                  <option value="1280x720">横屏 16:9</option>
+                  <option value="720x1280">竖屏 9:16</option>
+                </Select>
+              </Field>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="尺寸">
+                <Select
+                  value={params.size}
+                  onChange={(e) => setParams({ ...params, size: e.target.value })}
+                >
+                  {SIZES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="质量">
+                <Select
+                  value={params.quality}
+                  onChange={(e) => setParams({ ...params, quality: e.target.value })}
+                >
+                  {QUALITIES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="数量">
+                <Select
+                  value={params.n}
+                  onChange={(e) => setParams({ ...params, n: Number(e.target.value) })}
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      {n} 张
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="背景">
+                <Select
+                  value={params.background}
+                  onChange={(e) =>
+                    setParams({
+                      ...params,
+                      background: e.target.value as ImageJobParams['background'],
+                    })
+                  }
+                >
+                  <option value="auto">自动</option>
+                  <option value="opaque">不透明</option>
+                  <option value="transparent">透明</option>
+                </Select>
+              </Field>
+            </div>
+          )}
 
           <Button
             variant="primary"
@@ -247,7 +285,7 @@ export function ImagesView() {
             onClick={() => void generate()}
           >
             <Wand2 className="size-4" />
-            {refs.length ? '编辑生成' : '生成'}
+            {isVideo ? '生成视频' : refs.length ? '编辑生成' : '生成'}
           </Button>
           <p className="text-center text-xs text-fg-faint">⌘/Ctrl + Enter 快速生成</p>
         </div>
@@ -257,7 +295,7 @@ export function ImagesView() {
           {jobs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-sm text-fg-faint">
               <Wand2 className="mb-3 size-8" />
-              生成的图片会出现在这里
+              生成的图片和视频会出现在这里
             </div>
           ) : (
             <div className="space-y-8">
@@ -363,14 +401,17 @@ function JobCard({
   onReuse: () => void
   onDelete: () => void
 }) {
-  const count = job.params.n ?? 1
+  const video = job.params.kind === 'video'
+  const count = video ? 1 : (job.params.n ?? 1)
   return (
     <div className="group">
       <div className="mb-2 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm leading-relaxed">{job.prompt}</p>
           <p className="mt-0.5 text-xs text-fg-faint">
-            {job.modelId} · {job.params.size ?? '自动尺寸'} · {formatTime(job.createdAt)}
+            {job.modelId} ·{' '}
+            {video ? `${job.params.seconds ?? '?'} 秒视频` : (job.params.size ?? '自动尺寸')} ·{' '}
+            {formatTime(job.createdAt)}
             {job.sourceBlobIds.length > 0 && ` · ${job.sourceBlobIds.length} 张参考图`}
           </p>
         </div>
@@ -388,6 +429,30 @@ function JobCard({
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <span className="break-all">{job.error}</span>
         </div>
+      ) : video ? (
+        job.status === 'done' && job.resultBlobIds[0] ? (
+          <video
+            src={blobUrl(job.resultBlobIds[0])}
+            controls
+            preload="metadata"
+            className="max-h-[420px] max-w-full rounded-xl border border-line bg-black"
+          />
+        ) : (
+          <div className="flex h-40 max-w-md flex-col items-center justify-center gap-3 rounded-xl border border-line bg-muted">
+            <Spinner />
+            <div className="w-48">
+              <div className="h-1.5 overflow-hidden rounded-full bg-line">
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{ width: `${job.params.progress ?? 0}%` }}
+                />
+              </div>
+              <div className="mt-1.5 text-center text-xs text-fg-faint">
+                视频生成中 {job.params.progress ?? 0}% · 通常需要几分钟，可以离开此页面
+              </div>
+            </div>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
           {job.status === 'done'

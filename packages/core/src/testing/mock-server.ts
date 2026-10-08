@@ -46,7 +46,7 @@ export interface MockServer {
 export const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
-const DEFAULT_MODELS = ['claude-sonnet-5-5', 'gpt-5', 'gpt-image-2']
+const DEFAULT_MODELS = ['claude-sonnet-5-5', 'gpt-5', 'gpt-image-2', 'sora-2']
 
 export async function startMockServer(opts: MockServerOptions = {}): Promise<MockServer> {
   const apiKey = opts.apiKey ?? 'sk-test'
@@ -83,6 +83,30 @@ export async function startMockServer(opts: MockServerOptions = {}): Promise<Moc
       toolResults: toolResults(body),
     }
     requests.push(info)
+
+    // Videos API: completes on the third poll.
+    if (req.method === 'POST' && path === '/v1/videos') {
+      const id = `video_${++callSeq}`
+      videoPolls.set(id, 0)
+      return json(res, 200, { id, object: 'video', status: 'queued', progress: 0 })
+    }
+    const vm = /^\/v1\/videos\/([^/]+)(\/content)?$/.exec(path)
+    if (req.method === 'GET' && vm) {
+      const polls = videoPolls.get(vm[1]!)
+      if (polls === undefined) return json(res, 404, { error: { message: 'video not found' } })
+      if (vm[2]) {
+        res.writeHead(200, { 'Content-Type': 'video/mp4' })
+        return void res.end(Buffer.from('\x00\x00\x00\x18ftypmp42mock-video', 'latin1'))
+      }
+      videoPolls.set(vm[1]!, polls + 1)
+      const done = polls >= 2
+      return json(res, 200, {
+        id: vm[1],
+        object: 'video',
+        status: done ? 'completed' : 'in_progress',
+        progress: done ? 100 : polls * 40,
+      })
+    }
 
     if (path === '/v1/images/generations' || path === '/v1/images/edits') {
       const n = Number((body as { n?: number }).n ?? 1)
@@ -129,6 +153,7 @@ function json(res: ServerResponse, status: number, data: unknown) {
 
 let streamDelay = 0
 let callSeq = 0
+const videoPolls = new Map<string, number>()
 
 /**
  * SSE writer. Events are queued and flushed with `streamDelay` between them;
