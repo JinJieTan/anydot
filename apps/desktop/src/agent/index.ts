@@ -9,6 +9,7 @@ import {
   ALL_TOOLS,
   buildSystemPrompt,
   loadProjectInstructions,
+  McpManager,
   resolveShellEnv,
   runAgent,
   shellFor,
@@ -27,6 +28,7 @@ interface Run {
 }
 
 const runs = new Map<string, Run>()
+const mcp = new McpManager(() => shellEnv)
 
 function send(res: AgentResponse) {
   process.parentPort.postMessage(res)
@@ -47,7 +49,7 @@ async function start(runId: string, req: AgentRunRequest) {
       const a = req.agent
       cwd = a.cwd
       env = await shellEnv
-      tools = toolsForMode(ALL_TOOLS, a.mode)
+      tools = toolsForMode([...ALL_TOOLS, ...mcp.tools()], a.mode)
       system = buildSystemPrompt({
         cwd,
         platform: process.platform,
@@ -113,6 +115,9 @@ process.parentPort.on('message', (event) => {
       break
     case 'run.start':
       void start(msg.runId, msg.request)
+      break
+    case 'mcp.configure':
+      void mcp.configure(msg.servers).then((servers) => send({ type: 'mcp.status', servers }))
       break
     case 'run.abort': {
       const run = runs.get(msg.runId)

@@ -5,7 +5,13 @@
  * preload only forwards method names listed in RPC_METHODS. Keys never cross
  * into the renderer: providers expose `hasKey` / `keyHint` instead.
  */
-import type { AgentEvent, ApprovalDecision, ApprovalRequest } from '@aitech/agent'
+import type {
+  AgentEvent,
+  ApprovalDecision,
+  ApprovalRequest,
+  McpServerConfig,
+  McpServerStatus,
+} from '@aitech/agent'
 import type { Capability, MessagePart, Protocol, ProviderType, ThinkingLevel } from '@aitech/core'
 import type {
   ConversationParams,
@@ -111,6 +117,11 @@ export interface RemoteStatusDTO {
   /** Phones that sent something in the last few minutes. */
   activeDevices: string[]
 }
+
+/** MCP server as shown in settings. Secret values come back masked as SECRET_MASK. */
+export type McpServerDTO = McpServerConfig
+export type { McpServerStatus }
+export const SECRET_MASK = '••••••'
 
 export interface PairRequestDTO {
   requestId: string
@@ -246,6 +257,10 @@ export interface Rpc {
   'remote.pairRespond': (input: { requestId: string; accept: boolean }) => void
   'remote.revoke': (deviceId: string) => void
 
+  'mcp.list': () => { servers: McpServerDTO[]; status: McpServerStatus[] }
+  'mcp.save': (server: Omit<McpServerDTO, 'id'> & { id?: string }) => McpServerDTO
+  'mcp.delete': (id: string) => void
+
   /** Open model-generated HTML in an isolated preview window. */
   'preview.html': (html: string) => void
 
@@ -307,6 +322,9 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'remote.pairCancel': true,
   'remote.pairRespond': true,
   'remote.revoke': true,
+  'mcp.list': true,
+  'mcp.save': true,
+  'mcp.delete': true,
   'preview.html': true,
   'blobs.put': true,
   'blobs.saveAs': true,
@@ -337,6 +355,7 @@ export interface Events {
   /** Something changed outside the current view (import, provider edits). */
   remote: RemoteStatusDTO
   'remote-pair': PairRequestDTO
+  mcp: McpServerStatus[]
   invalidate: { scope: 'conversations' | 'providers' | 'models' | 'images' | 'projects' | 'all' }
 }
 
@@ -375,9 +394,11 @@ export type AgentRequest =
   | { type: 'run.start'; runId: string; request: AgentRunRequest }
   | { type: 'run.abort'; runId: string }
   | { type: 'run.approve'; runId: string; toolCallId: string; decision: ApprovalDecision }
+  | { type: 'mcp.configure'; servers: McpServerConfig[] }
 
 export type AgentResponse =
   | { type: 'pong'; id: string; pid: number }
+  | { type: 'mcp.status'; servers: McpServerStatus[] }
   | { type: 'run.event'; runId: string; event: AgentEvent }
   | { type: 'run.approval'; runId: string; request: ApprovalRequest }
   | {

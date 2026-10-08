@@ -28,6 +28,7 @@ import { exportData, importData } from './data-transfer'
 import { openPreview } from './preview'
 import { emit } from './events'
 import type { ImageService } from './image-service'
+import type { McpService } from './mcp-service'
 import type { RemoteService } from './remote-service'
 import { decryptKey, encryptKey, keyHint, keyStorageKind } from './secrets'
 
@@ -37,6 +38,7 @@ interface Deps {
   chat: ChatService
   images: ImageService
   remote: RemoteService
+  mcp: McpService
   dbPath: string
 }
 
@@ -102,7 +104,7 @@ function typedHandle<K extends RpcMethod>(
   })
 }
 
-export function registerIpc({ store, blobs, chat, images, remote, dbPath }: Deps): void {
+export function registerIpc({ store, blobs, chat, images, remote, mcp, dbPath }: Deps): void {
   const getSettings = () => loadSettings(store)
 
   const handlers: { [K in RpcMethod]: (...args: Parameters<Rpc[K]>) => unknown } = {
@@ -286,6 +288,10 @@ export function registerIpc({ store, blobs, chat, images, remote, dbPath }: Deps
     'remote.pairCancel': () => remote.cancelPairing(),
     'remote.pairRespond': ({ requestId, accept }) => remote.respondPair(requestId, accept),
     'remote.revoke': (deviceId) => remote.revoke(deviceId),
+
+    'mcp.list': () => mcp.list(),
+    'mcp.save': (server) => mcp.upsert(server),
+    'mcp.delete': (id) => mcp.remove(id),
 
     'preview.html': (html) => openPreview(html),
 

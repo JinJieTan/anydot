@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "2.0.71",
     "@aitech/core": "workspace:*"
   }
 }

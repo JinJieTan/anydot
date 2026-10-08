@@ -24,6 +24,9 @@ export class AgentHost {
   private pings = new Map<string, (pid: number) => void>()
   private runs = new Map<string, RunHandlers>()
   private stopping = false
+  /** Called after every (re)start, so state like MCP config can be re-sent. */
+  onStart: (() => void) | null = null
+  onMcpStatus: ((servers: import('../shared/ipc').McpServerStatus[]) => void) | null = null
 
   start(): void {
     this.stopping = false
@@ -50,6 +53,7 @@ export class AgentHost {
       }
     })
     this.child = child
+    this.onStart?.()
   }
 
   stop(): void {
@@ -69,6 +73,9 @@ export class AgentHost {
         this.pings.get(res.id)?.(res.pid)
         this.pings.delete(res.id)
         break
+      case 'mcp.status':
+        this.onMcpStatus?.(res.servers)
+        break
       case 'run.event':
         this.runs.get(res.runId)?.onEvent(res.event)
         break
@@ -80,6 +87,10 @@ export class AgentHost {
         this.runs.delete(res.runId)
         break
     }
+  }
+
+  configureMcp(servers: import('@aitech/agent').McpServerConfig[]) {
+    if (this.child) this.post({ type: 'mcp.configure', servers })
   }
 
   run(request: AgentRunRequest, handlers: RunHandlers): RunHandle {

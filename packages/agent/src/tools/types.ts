@@ -8,8 +8,9 @@ import type { ProviderCredentials, ToolDefinition } from '@aitech/core'
  * network – talks to the internet
  * image   – calls a paid image model and writes files
  * meta    – bookkeeping only (todo list)
+ * mcp     – provided by an external MCP server; effects unknown
  */
-export type ToolKind = 'read' | 'write' | 'exec' | 'network' | 'image' | 'meta'
+export type ToolKind = 'read' | 'write' | 'exec' | 'network' | 'image' | 'meta' | 'mcp'
 
 export interface ToolResult {
   output: string

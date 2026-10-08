@@ -10,6 +10,7 @@ import { ChatService } from './chat-service'
 import { emit } from './events'
 import { ImageService } from './image-service'
 import { loadSettings, registerIpc } from './ipc'
+import { McpService } from './mcp-service'
 import { RemoteService } from './remote-service'
 
 /** Serves local blobs to the renderer as aitech-blob://blob/<sha256>. */
@@ -119,6 +120,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     })
 
+    const mcp = new McpService(s, agent, (status) => emit('mcp', status))
     agent.start()
     chat = new ChatService(
       s,
@@ -138,7 +140,7 @@ if (!app.requestSingleInstanceLock()) {
       (status) => emit('remote', status),
       (req) => emit('remote-pair', req),
     )
-    registerIpc({ store: s, blobs, chat, images, remote, dbPath: opened.dbPath })
+    registerIpc({ store: s, blobs, chat, images, remote, mcp, dbPath: opened.dbPath })
     createWindow()
     void remote.restart()
 

@@ -4,15 +4,17 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Capability, Protocol, ProviderType } from '@aitech/core'
 import type { AppInfo, ModelDTO, ProviderDTO, Rpc, Settings, TestResult } from '../../../shared/ipc'
 import { modelLabel } from '../components/ModelPicker'
+import { McpTab } from '../components/Mcp'
 import { RemoteTab } from '../components/Remote'
 import { Badge, Button, Field, IconButton, Input, Select, Spinner, Toggle } from '../components/ui'
 import { invoke } from '../lib/api'
 import { attempt, succeeded, useApp } from '../store/app'
 
-type Tab = 'providers' | 'remote' | 'general' | 'data' | 'about'
+type Tab = 'providers' | 'mcp' | 'remote' | 'general' | 'data' | 'about'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: '服务商与模型' },
+  { id: 'mcp', label: 'MCP 工具' },
   { id: 'remote', label: '手机连接' },
   { id: 'general', label: '通用' },
   { id: 'data', label: '数据' },
@@ -46,6 +48,7 @@ export function SettingsView() {
         </nav>
         <div className="min-w-0 flex-1 overflow-y-auto">
           {tab === 'providers' && <ProvidersTab />}
+          {tab === 'mcp' && <McpTab />}
           {tab === 'remote' && <RemoteTab />}
           {tab === 'general' && <GeneralTab />}
           {tab === 'data' && <DataTab />}
