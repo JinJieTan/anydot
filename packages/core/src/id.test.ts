@@ -7,12 +7,21 @@ describe('newId', () => {
   })
 
   it('encodes the timestamp', () => {
-    const now = 1_760_000_000_123
-    expect(idTimestamp(newId(now))).toBe(now)
+    const future = Date.now() + 60_000
+    expect(idTimestamp(newId(future))).toBe(future)
   })
 
-  it('sorts by creation time', () => {
-    const ids = [3, 1, 2].map((t) => newId(1_760_000_000_000 + t))
-    expect([...ids].sort()).toEqual([ids[1], ids[2], ids[0]])
+  it('is monotonic within the same millisecond', () => {
+    const t = Date.now() + 120_000
+    const ids = Array.from({ length: 50 }, () => newId(t))
+    expect([...ids].sort()).toEqual(ids)
+    expect(new Set(ids).size).toBe(50)
+  })
+
+  it('never goes backwards when the clock does', () => {
+    const t = Date.now() + 180_000
+    const a = newId(t)
+    const b = newId(t - 5_000)
+    expect(b > a).toBe(true)
   })
 })

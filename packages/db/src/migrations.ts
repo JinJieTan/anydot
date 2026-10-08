@@ -93,4 +93,16 @@ export const migrations: readonly string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  /* 2: branches, enable flags, per-conversation thinking */ `
+  ALTER TABLE conversations ADD COLUMN active_leaf_id TEXT;
+  ALTER TABLE conversations ADD COLUMN thinking TEXT NOT NULL DEFAULT 'off';
+  ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE providers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE models ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE messages ADD COLUMN error TEXT;
+  ALTER TABLE image_jobs ADD COLUMN source_blob_ids TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE image_jobs ADD COLUMN usage_json TEXT;
+  CREATE INDEX messages_parent ON messages(parent_id);
+  CREATE INDEX image_jobs_created ON image_jobs(created_at DESC);
+  `,
 ]

@@ -40,3 +40,14 @@ export function migrate(db: Database): number {
 }
 
 export { migrations }
+export { Store, newestLeafFrom, pathToLeaf } from './store'
+export type {
+  ConversationParams,
+  ConversationRow,
+  ImageJobParams,
+  ImageJobRow,
+  ImageJobStatus,
+  MessageRow,
+  ModelRow,
+  ProviderRow,
+} from './store'
