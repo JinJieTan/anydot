@@ -1,18 +1,25 @@
 import clsx from 'clsx'
-import { Settings2, Sparkles } from 'lucide-react'
+import { Folder, FolderOpen, Settings2, Sparkles, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Attachment, ConversationDTO, Rpc } from '../../../shared/ipc'
+import type {
+  Attachment,
+  ConversationDTO,
+  PermissionMode,
+  ProjectDTO,
+  Rpc,
+} from '../../../shared/ipc'
 import { Composer } from '../components/Composer'
 import { AssistantMessage, UserMessage } from '../components/Message'
 import { ModelPicker, ThinkingPicker } from '../components/ModelPicker'
-import { Button, Field, IconButton, Input, Modal, Textarea } from '../components/ui'
+import type { ToolResultPart } from '../components/ToolCall'
+import { Button, Field, IconButton, Input, Modal, Textarea, useDismiss } from '../components/ui'
 import { invoke, isMac } from '../lib/api'
 import { activePath, siblingsOf } from '../lib/tree'
 import { attempt, succeeded, useApp } from '../store/app'
 import { useChat } from '../store/chat'
 
 export function ChatView() {
-  const { activeId, running, models, providers, settings, setView, open } = useApp()
+  const { activeId, running, models, providers, settings, setView, open, projects } = useApp()
   const conversation = useChat((s) => (activeId ? s.conversations[activeId] : undefined))
   const messages = useChat((s) => (activeId ? s.messages[activeId] : undefined))
   const { load, setConversation } = useChat()
@@ -27,6 +34,9 @@ export function ChatView() {
     [messages, conversation],
   )
 
+  const project = conversation?.projectId
+    ? projects.find((p) => p.id === conversation.projectId)
+    : undefined
   const isRunning = !!activeId && running.has(activeId)
   const chatModels = models.filter((m) => m.capabilities.includes('chat'))
 
@@ -56,8 +66,7 @@ export function ChatView() {
       open(conv.id)
     }
     const id = conv.id
-    const ok = await succeeded(() => invoke('chat.send', { conversationId: id, text, attachments }))
-    return ok
+    return succeeded(() => invoke('chat.send', { conversationId: id, text, attachments }))
   }
 
   const toolbar = (
@@ -76,6 +85,7 @@ export function ChatView() {
           }
         />
       )}
+      {project && <ModePicker project={project} />}
     </>
   )
 
@@ -86,6 +96,7 @@ export function ChatView() {
       toolbar={toolbar}
       onSend={send}
       onStop={() => activeId && void invoke('chat.stop', activeId)}
+      placeholder={project ? `让 AI 在 ${project.name} 中完成任务，Enter 发送` : undefined}
     />
   )
 
@@ -99,9 +110,19 @@ export function ChatView() {
           <div className="w-full max-w-2xl">
             <div className="mb-8 flex flex-col items-center text-center">
               <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent/12 text-accent">
-                <Sparkles className="size-6" />
+                {project ? <Terminal className="size-6" /> : <Sparkles className="size-6" />}
               </div>
-              <h1 className="text-2xl font-semibold">有什么可以帮你？</h1>
+              <h1 className="text-2xl font-semibold">
+                {project ? `在「${project.name}」中做点什么？` : '有什么可以帮你？'}
+              </h1>
+              {project && (
+                <p
+                  className="mt-2 max-w-md truncate font-mono text-xs text-fg-faint"
+                  title={project.rootPath}
+                >
+                  {project.rootPath}
+                </p>
+              )}
               {noProviders && (
                 <p className="mt-2 text-sm text-fg-soft">
                   先添加一个服务商：填入 Base URL 和 API Key 就能开始。
@@ -117,6 +138,11 @@ export function ChatView() {
             ) : (
               composer
             )}
+            {project && !noProviders && (
+              <p className="mt-3 text-center text-xs text-fg-faint">
+                AI 可以读取和修改这个文件夹中的文件、运行命令。修改前会按当前权限模式征求你的确认。
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -131,9 +157,28 @@ export function ChatView() {
           isMac && 'pl-4',
         )}
       >
+        {project && (
+          <button
+            type="button"
+            onClick={() => void attempt(() => invoke('projects.reveal', project.id))}
+            title={`在文件管理器中打开 ${project.rootPath}`}
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs text-fg-soft hover:text-fg"
+          >
+            <Folder className="size-3.5" />
+            {project.name}
+          </button>
+        )}
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
           {conversation.title || '新对话'}
         </h1>
+        {project && (
+          <IconButton
+            label="打开项目文件夹"
+            onClick={() => void attempt(() => invoke('projects.reveal', project.id))}
+          >
+            <FolderOpen className="size-4" />
+          </IconButton>
+        )}
         <IconButton label="对话设置" onClick={() => setShowSettings(true)}>
           <Settings2 className="size-4" />
         </IconButton>
@@ -158,6 +203,60 @@ export function ChatView() {
   )
 }
 
+const MODES: { value: PermissionMode; label: string; hint: string }[] = [
+  { value: 'ask', label: '每次询问', hint: '修改文件、运行命令前都先确认' },
+  { value: 'auto-edit', label: '自动改文件', hint: '项目内的文件修改直接执行，命令仍需确认' },
+  { value: 'auto', label: '全自动', hint: '除危险命令和项目外路径外都直接执行' },
+  { value: 'plan', label: '只读规划', hint: '只阅读代码并给出方案，不做任何修改' },
+]
+
+function ModePicker({ project }: { project: ProjectDTO }) {
+  const [openMenu, setOpenMenu] = useState(false)
+  const ref = useDismiss(openMenu, () => setOpenMenu(false))
+  const current = MODES.find((m) => m.value === project.permissionMode) ?? MODES[0]!
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        title="权限模式（对整个项目生效）"
+        onClick={() => setOpenMenu((v) => !v)}
+        className={clsx(
+          'flex h-8 items-center gap-1 rounded-lg px-2 text-sm hover:bg-muted',
+          project.permissionMode === 'auto' ? 'text-amber-600 dark:text-amber-400' : 'text-fg-soft',
+        )}
+      >
+        {current.label}
+      </button>
+      {openMenu && (
+        <div className="absolute bottom-full left-0 z-30 mb-1 w-64 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-xl">
+          {MODES.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={async () => {
+                setOpenMenu(false)
+                const next = await attempt(() =>
+                  invoke('projects.update', project.id, { permissionMode: m.value }),
+                )
+                if (next) useApp.getState().upsertProject(next)
+              }}
+              className={clsx(
+                'block w-full px-3 py-2 text-left hover:bg-muted',
+                m.value === project.permissionMode && 'bg-muted/60',
+              )}
+            >
+              <div className="text-sm">{m.label}</div>
+              <div className="text-xs text-fg-faint">{m.hint}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const EMPTY = new Map<string, ToolResultPart>()
+
 function MessageList({
   conversation,
   path,
@@ -167,10 +266,28 @@ function MessageList({
   path: ReturnType<typeof activePath>
   busy: boolean
 }) {
-  const messages = useChat((s) => s.messages[conversation.id] ?? [])
+  const messages = useChat((s) => s.messages[conversation.id])
+  const approvals = useChat((s) => s.approvals)
   const { setConversation } = useChat()
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+
+  // Tool results live in the tool messages that follow each assistant step.
+  // Match them per step: some gateways reuse call ids like "call_0" across steps.
+  const resultsByStep = useMemo(() => {
+    const map = new Map<string, Map<string, ToolResultPart>>()
+    path.forEach((m, i) => {
+      if (m.role !== 'assistant') return
+      const results = new Map<string, ToolResultPart>()
+      for (const t of path.slice(i + 1)) {
+        if (t.role !== 'tool') break
+        for (const p of t.parts)
+          if (p.type === 'tool_result') results.set(p.id, { output: p.output, isError: p.isError })
+      }
+      map.set(m.id, results)
+    })
+    return map
+  }, [path])
 
   // Follow the stream only while the user is at the bottom.
   const onScroll = () => {
@@ -181,10 +298,11 @@ function MessageList({
 
   const last = path.at(-1)
   const lastLen = last ? JSON.stringify(last.parts).length : 0
+  const approvalCount = Object.keys(approvals).length
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [path.length, lastLen])
+  }, [path.length, lastLen, approvalCount])
 
   useEffect(() => {
     stick.current = true
@@ -201,9 +319,10 @@ function MessageList({
 
   return (
     <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
-        {path.map((m) => {
-          const sibs = siblingsOf(messages, m)
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        {path.map((m, i) => {
+          if (m.role === 'tool' || m.role === 'system') return null
+          const sibs = siblingsOf(messages ?? [], m)
           const index = sibs.findIndex((s) => s.id === m.id)
           const branch = {
             index,
@@ -213,45 +332,50 @@ function MessageList({
           }
           if (m.role === 'user') {
             return (
-              <UserMessage
-                key={m.id}
-                message={m}
-                branch={branch}
-                busy={busy}
-                onEdit={async (text, attachments) => {
-                  const ok = await succeeded(() =>
-                    invoke('chat.edit', {
-                      conversationId: conversation.id,
-                      userMessageId: m.id,
-                      text,
-                      attachments,
-                    }),
-                  )
-                  return ok
-                }}
-              />
+              <div key={m.id} className={clsx(i > 0 && 'mt-8')}>
+                <UserMessage
+                  message={m}
+                  branch={branch}
+                  busy={busy}
+                  onEdit={(text, attachments) =>
+                    succeeded(() =>
+                      invoke('chat.edit', {
+                        conversationId: conversation.id,
+                        userMessageId: m.id,
+                        text,
+                        attachments,
+                      }),
+                    )
+                  }
+                />
+              </div>
             )
           }
-          if (m.role === 'assistant') {
-            return (
+          // An agent turn is several assistant/tool messages; actions go on its last one.
+          const next = path.slice(i + 1).find((x) => x.role !== 'tool')
+          const endOfTurn = !next || next.role === 'user'
+          const userId = path.slice(0, i).findLast((x) => x.role === 'user')?.id
+          return (
+            <div key={m.id} className={clsx(path[i - 1]?.role === 'user' ? 'mt-6' : 'mt-2')}>
               <AssistantMessage
-                key={m.id}
                 message={m}
                 branch={branch}
                 busy={busy}
+                results={resultsByStep.get(m.id) ?? EMPTY}
+                approvals={approvals}
+                endOfTurn={endOfTurn}
                 onRegenerate={() =>
-                  m.parentId &&
+                  userId &&
                   void attempt(() =>
                     invoke('chat.regenerate', {
                       conversationId: conversation.id,
-                      userMessageId: m.parentId!,
+                      userMessageId: userId,
                     }),
                   )
                 }
               />
-            )
-          }
-          return null
+            </div>
+          )
         })}
       </div>
     </div>

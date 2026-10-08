@@ -1,8 +1,9 @@
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, Play } from 'lucide-react'
 import { memo, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
+import { invoke } from '../lib/api'
 
 function textContent(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -44,10 +45,23 @@ const components: Components = {
       <div className="code-block overflow-hidden rounded-xl border border-line bg-code">
         <div className="flex h-8 items-center justify-between border-b border-line px-3 text-xs text-fg-faint">
           <span>{lang || 'text'}</span>
-          <CopyButton
-            text={textContent(children).replace(/\n$/, '')}
-            className="rounded p-1 hover:bg-muted hover:text-fg"
-          />
+          <div className="flex items-center gap-1">
+            {(lang === 'html' || lang === 'svg') && (
+              <button
+                type="button"
+                title="在独立窗口中预览"
+                className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-muted hover:text-fg"
+                onClick={() => void invoke('preview.html', textContent(children))}
+              >
+                <Play className="size-3" />
+                预览
+              </button>
+            )}
+            <CopyButton
+              text={textContent(children).replace(/\n$/, '')}
+              className="rounded p-1 hover:bg-muted hover:text-fg"
+            />
+          </div>
         </div>
         <pre>{children}</pre>
       </div>
@@ -67,7 +81,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
+        rehypePlugins={[[rehypeHighlight, { detect: false }]]}
         components={components}
       >
         {text}

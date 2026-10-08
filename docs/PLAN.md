@@ -165,12 +165,15 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 
 ### M2 · Agent（写代码）
 
-- [ ] 项目 = 文件夹 + 项目指令
-- [ ] Agent loop：工具调用、中断、上下文压缩、用量统计
-- [ ] 第一批工具 + 权限模式 + 审批弹窗
-- [ ] 工具调用卡片、diff 视图、终端输出
-- [ ] `generate_image` 工具
-- [ ] Artifacts 预览（沙箱 iframe）
+- [x] 项目 = 文件夹 + 项目说明（另外自动读取 AGENTS.md / CLAUDE.md）
+- [x] Agent loop（`@aitech/agent`）：工具调用、中断、旧工具输出截断、每步用量统计
+- [x] 工具：read_file / write_file / edit_file / list_files / grep / bash / web_fetch / generate_image / todo_write
+- [x] 权限模式：每次询问 / 自动改文件 / 全自动 / 只读规划；危险命令和项目外路径始终确认；“总是允许”按命令族记忆
+- [x] 审批卡片、工具调用卡片、diff 视图、命令输出、任务列表
+- [x] 登录 shell 环境解析（解决 GUI 启动时 PATH 不完整）、超时与停止时终止整个进程树
+- [x] HTML / SVG 代码块在隔离窗口预览
+- [ ] 上下文自动摘要（目前是截断旧工具输出；长任务可能需要摘要压缩）
+- [ ] 真实模型验证（需要测试 Key）
 
 ### M3 · Relay 与手机端
 

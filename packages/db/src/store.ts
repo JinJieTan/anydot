@@ -34,6 +34,19 @@ export interface ModelRow {
   enabled: boolean
 }
 
+export type PermissionMode = 'ask' | 'auto-edit' | 'auto' | 'plan'
+
+export interface ProjectRow {
+  id: string
+  name: string
+  rootPath: string
+  instructions: string | null
+  defaultModelId: string | null
+  permissionMode: PermissionMode
+  createdAt: number
+  updatedAt: number
+}
+
 export interface ConversationParams {
   temperature?: number
   maxOutputTokens?: number
@@ -113,14 +126,21 @@ export class Store {
     return this.db.prepare(sql).run(...params)
   }
 
+  private depth = 0
+
+  /** Run fn atomically. Nested calls use savepoints, so composite operations compose. */
   transaction<T>(fn: () => T): T {
-    this.db.exec('BEGIN')
+    const sp = `sp${this.depth}`
+    this.db.exec(this.depth === 0 ? 'BEGIN' : `SAVEPOINT ${sp}`)
+    this.depth++
     try {
       const out = fn()
-      this.db.exec('COMMIT')
+      this.depth--
+      this.db.exec(this.depth === 0 ? 'COMMIT' : `RELEASE ${sp}`)
       return out
     } catch (err) {
-      this.db.exec('ROLLBACK')
+      this.depth--
+      this.db.exec(this.depth === 0 ? 'ROLLBACK' : `ROLLBACK TO ${sp}; RELEASE ${sp}`)
       throw err
     }
   }
@@ -327,6 +347,90 @@ export class Store {
       this.deviceId,
       id,
     )
+  }
+
+  // ── projects ───────────────────────────────────────────────
+
+  private toProject = (r: Row): ProjectRow => ({
+    id: r.id as string,
+    name: r.name as string,
+    rootPath: r.root_path as string,
+    instructions: (r.instructions as string | null) ?? null,
+    defaultModelId: (r.default_model_id as string | null) ?? null,
+    permissionMode: (r.permission_mode as PermissionMode) ?? 'ask',
+    createdAt: r.created_at as number,
+    updatedAt: r.updated_at as number,
+  })
+
+  listProjects(): ProjectRow[] {
+    return this.all('SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC').map(
+      this.toProject,
+    )
+  }
+
+  getProject(id: string): ProjectRow | undefined {
+    const r = this.get('SELECT * FROM projects WHERE id = ? AND deleted_at IS NULL', id)
+    return r && this.toProject(r)
+  }
+
+  createProject(input: {
+    name: string
+    rootPath: string
+    permissionMode?: PermissionMode
+  }): ProjectRow {
+    const id = newId()
+    const t = this.now()
+    this.run(
+      `INSERT INTO projects (id, name, root_path, permission_mode, created_at, updated_at, device_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      input.name,
+      input.rootPath,
+      input.permissionMode ?? 'ask',
+      t,
+      t,
+      this.deviceId,
+    )
+    return this.getProject(id)!
+  }
+
+  updateProject(
+    id: string,
+    patch: Partial<
+      Pick<ProjectRow, 'name' | 'rootPath' | 'instructions' | 'defaultModelId' | 'permissionMode'>
+    >,
+  ): ProjectRow {
+    const cur = this.getProject(id)
+    if (!cur) throw new Error(`project ${id} not found`)
+    const next = { ...cur, ...patch }
+    this.run(
+      `UPDATE projects SET name = ?, root_path = ?, instructions = ?, default_model_id = ?, permission_mode = ?,
+         updated_at = ?, device_id = ? WHERE id = ?`,
+      next.name,
+      next.rootPath,
+      next.instructions,
+      next.defaultModelId,
+      next.permissionMode,
+      this.now(),
+      this.deviceId,
+      id,
+    )
+    return this.getProject(id)!
+  }
+
+  /** Remove a project from the app. Files on disk are never touched. */
+  deleteProject(id: string): void {
+    const t = this.now()
+    this.transaction(() => {
+      this.run(
+        'UPDATE projects SET deleted_at = ?, updated_at = ?, device_id = ? WHERE id = ?',
+        t,
+        t,
+        this.deviceId,
+        id,
+      )
+      for (const c of this.listConversations({ projectId: id })) this.deleteConversation(c.id)
+    })
   }
 
   // ── conversations ──────────────────────────────────────────

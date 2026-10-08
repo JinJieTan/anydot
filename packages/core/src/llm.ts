@@ -2,7 +2,9 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import {
   APICallError,
+  jsonSchema,
   streamText,
+  tool,
   type LanguageModel,
   type ModelMessage,
   type ToolSet,
@@ -67,13 +69,57 @@ export function thinkingOptions(protocol: Protocol, level: ThinkingLevel) {
 
 export type BlobLoader = (sha256: string) => Promise<Uint8Array>
 
-/** Convert a stored conversation path (root → leaf) into AI SDK model messages. */
+export interface ToModelMessagesOptions {
+  /**
+   * Tool outputs older than the most recent `keepRecentToolResults` are cut to
+   * this many characters. Keeps long agent sessions inside the context window.
+   */
+  maxOldToolResultChars?: number
+  keepRecentToolResults?: number
+}
+
+const INTERRUPTED = 'Tool execution was interrupted before it produced a result.'
+
+/**
+ * Convert a stored conversation path (root → leaf) into AI SDK model messages.
+ *
+ * Guarantees providers accept the result: consecutive tool messages are merged
+ * into one, and every tool call gets a result (an interrupted run gets a
+ * synthetic error result), as Anthropic and OpenAI both require.
+ */
 export async function toModelMessages(
   path: StoredMessage[],
   loadBlob: BlobLoader,
+  opts: ToModelMessagesOptions = {},
 ): Promise<ModelMessage[]> {
   const out: ModelMessage[] = []
+  let pending = new Map<string, string>() // toolCallId → toolName awaiting a result
+
+  const totalResults = path.reduce(
+    (n, m) => n + m.parts.filter((p) => p.type === 'tool_result').length,
+    0,
+  )
+  let resultIndex = 0
+  const keepRecent = opts.keepRecentToolResults ?? Infinity
+  const maxOld = opts.maxOldToolResultChars ?? Infinity
+
+  const flushPending = () => {
+    if (!pending.size) return
+    const content = [...pending].map(([toolCallId, toolName]) => ({
+      type: 'tool-result' as const,
+      toolCallId,
+      toolName,
+      output: { type: 'error-text' as const, value: INTERRUPTED },
+    }))
+    const last = out.at(-1)
+    if (last?.role === 'tool') last.content.push(...content)
+    else out.push({ role: 'tool', content })
+    pending = new Map()
+  }
+
   for (const msg of path) {
+    if (msg.role !== 'tool') flushPending()
+
     if (msg.role === 'system') {
       const text = msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
       if (text) out.push({ role: 'system', content: text })
@@ -98,32 +144,61 @@ export async function toModelMessages(
       const content: Exclude<AssistantContent, string> = []
       for (const part of msg.parts) {
         if (part.type === 'text' && part.text) content.push({ type: 'text', text: part.text })
-        else if (part.type === 'tool_call')
+        else if (part.type === 'tool_call') {
           content.push({
             type: 'tool-call',
             toolCallId: part.id,
             toolName: part.name,
             input: part.input,
           })
+          pending.set(part.id, part.name)
+        }
       }
       if (content.length) out.push({ role: 'assistant', content })
     } else if (msg.role === 'tool') {
       const content = msg.parts
         .filter((p): p is Extract<MessagePart, { type: 'tool_result' }> => p.type === 'tool_result')
-        .map((p) => ({
-          type: 'tool-result' as const,
-          toolCallId: p.id,
-          toolName: p.name,
-          output: p.isError
-            ? { type: 'error-text' as const, value: String(p.output) }
-            : typeof p.output === 'string'
-              ? { type: 'text' as const, value: p.output }
-              : { type: 'json' as const, value: p.output as never },
-        }))
-      if (content.length) out.push({ role: 'tool', content })
+        .filter((p) => pending.delete(p.id)) // drop results whose call isn't in the path
+        .map((p) => {
+          const old = totalResults - ++resultIndex >= keepRecent
+          let value = typeof p.output === 'string' ? p.output : JSON.stringify(p.output)
+          if (old && value.length > maxOld) {
+            value = `${value.slice(0, maxOld)}\n…[truncated ${value.length - maxOld} chars]`
+          }
+          return {
+            type: 'tool-result' as const,
+            toolCallId: p.id,
+            toolName: p.name,
+            output: p.isError
+              ? { type: 'error-text' as const, value }
+              : { type: 'text' as const, value },
+          }
+        })
+      if (!content.length) continue
+      const last = out.at(-1)
+      if (last?.role === 'tool') last.content.push(...content)
+      else out.push({ role: 'tool', content })
     }
   }
+  flushPending()
   return out
+}
+
+export interface ToolDefinition {
+  name: string
+  description: string
+  /** JSON Schema for the tool input. */
+  inputSchema: Record<string, unknown>
+}
+
+/** Declare tools for the model without executing them (the agent loop does that). */
+export function defineTools(defs: ToolDefinition[]): ToolSet {
+  return Object.fromEntries(
+    defs.map((d) => [
+      d.name,
+      tool({ description: d.description, inputSchema: jsonSchema(d.inputSchema as never) }),
+    ]),
+  )
 }
 
 /** Normalised streaming events, independent of the underlying protocol. */
@@ -132,6 +207,8 @@ export type ChatEvent =
   | { type: 'reasoning'; text: string }
   | { type: 'tool-call'; id: string; name: string; input: unknown }
   | { type: 'finish'; usage: Usage; finishReason: string }
+  /** The assistant message(s) exactly as the SDK would replay them, incl. signed thinking blocks. */
+  | { type: 'response'; messages: ModelMessage[] }
   | { type: 'error'; message: string }
 
 export interface StreamChatOptions {
@@ -200,6 +277,8 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
           break
       }
     }
+    const response = await result.response
+    yield { type: 'response', messages: response.messages as ModelMessage[] }
   } catch (err) {
     if (opts.signal?.aborted) return
     yield { type: 'error', message: errorMessage(err) }

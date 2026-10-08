@@ -44,6 +44,9 @@ importers:
 
   apps/desktop:
     devDependencies:
+      '@aitech/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@aitech/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -107,6 +110,12 @@ importers:
       zustand:
         specifier: 5.0.15
         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)
+
+  packages/agent:
+    dependencies:
+      '@aitech/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/core:
     dependencies:

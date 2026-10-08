@@ -1,7 +1,7 @@
 import { jsonSchema, tool } from 'ai'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { generateImages } from './images'
-import { streamChat, toModelMessages, type ChatEvent, type ModelRef } from './llm'
+import { defineTools, streamChat, toModelMessages, type ChatEvent, type ModelRef } from './llm'
 import type { StoredMessage } from './messages'
 import { listModels } from './models'
 import { startMockServer, type MockServer } from './testing/mock-server'
@@ -151,6 +151,58 @@ describe('generateImages', () => {
   })
 })
 
+describe('response event', () => {
+  it('returns replayable assistant messages including tool calls', async () => {
+    const tools = defineTools([
+      { name: 'get_time', description: 'now', inputSchema: { type: 'object', properties: {} } },
+    ])
+    const { events } = await collect(
+      streamChat({ model: ref('claude-sonnet-5-5'), messages: user('tool'), tools }),
+    )
+    const res = events.find((e) => e.type === 'response') as Extract<
+      ChatEvent,
+      { type: 'response' }
+    >
+    expect(res.messages[0]).toMatchObject({
+      role: 'assistant',
+      content: expect.arrayContaining([
+        expect.objectContaining({ type: 'tool-call', toolName: 'get_time' }),
+      ]),
+    })
+  })
+
+  it('lets the mock see tool results on the next request', async () => {
+    const before = server.requests.length
+    await collect(
+      streamChat({
+        model: ref('gpt-5'),
+        messages: [
+          { role: 'user', content: 'tool' },
+          {
+            role: 'assistant',
+            content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'get_time', input: {} }],
+          },
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'c1',
+                toolName: 'get_time',
+                output: { type: 'text', value: '12:00' },
+              },
+            ],
+          },
+        ],
+        tools: defineTools([
+          { name: 'get_time', description: 'now', inputSchema: { type: 'object', properties: {} } },
+        ]),
+      }),
+    )
+    expect(server.requests[before]!.toolResults).toEqual(['12:00'])
+  })
+})
+
 describe('toModelMessages', () => {
   const msg = (role: StoredMessage['role'], parts: StoredMessage['parts']): StoredMessage => ({
     id: role,
@@ -194,5 +246,58 @@ describe('toModelMessages', () => {
     })
     // reasoning is display-only and never replayed
     expect(out[1]).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] })
+  })
+
+  it('merges consecutive tool messages and patches interrupted calls', async () => {
+    const call = (id: string) => ({ type: 'tool_call' as const, id, name: 'bash', input: {} })
+    const result = (id: string, output: string) => ({
+      type: 'tool_result' as const,
+      id,
+      name: 'bash',
+      output,
+    })
+    const out = await toModelMessages(
+      [
+        msg('user', [{ type: 'text', text: 'go' }]),
+        msg('assistant', [call('a'), call('b')]),
+        msg('tool', [result('a', 'A')]),
+        msg('tool', [result('b', 'B')]),
+        msg('assistant', [call('c')]),
+        // run interrupted: no result for c
+        msg('user', [{ type: 'text', text: 'next' }]),
+      ],
+      async () => new Uint8Array(),
+    )
+    expect(out.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'user',
+    ])
+    expect((out[2] as { content: unknown[] }).content).toHaveLength(2)
+    expect(out[4]).toMatchObject({
+      role: 'tool',
+      content: [{ toolCallId: 'c', output: { type: 'error-text' } }],
+    })
+  })
+
+  it('truncates old tool output but keeps recent ones intact', async () => {
+    const long = 'x'.repeat(100)
+    const out = await toModelMessages(
+      [
+        msg('assistant', [{ type: 'tool_call', id: '1', name: 't', input: {} }]),
+        msg('tool', [{ type: 'tool_result', id: '1', name: 't', output: long }]),
+        msg('assistant', [{ type: 'tool_call', id: '2', name: 't', input: {} }]),
+        msg('tool', [{ type: 'tool_result', id: '2', name: 't', output: long }]),
+      ],
+      async () => new Uint8Array(),
+      { maxOldToolResultChars: 10, keepRecentToolResults: 1 },
+    )
+    const value = (i: number) =>
+      (out[i] as { content: { output: { value: string } }[] }).content[0]!.output.value
+    expect(value(1)).toMatch(/^x{10}\n…\[truncated 90 chars\]$/)
+    expect(value(3)).toBe(long)
   })
 })

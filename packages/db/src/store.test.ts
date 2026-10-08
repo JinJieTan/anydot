@@ -167,3 +167,35 @@ describe('image jobs and settings', () => {
     expect(store.getSetting('theme', 'system')).toBe('light')
   })
 })
+
+describe('projects', () => {
+  it('creates, updates and deletes with its conversations', () => {
+    const p = store.createProject({ name: 'app', rootPath: '/code/app' })
+    expect(p.permissionMode).toBe('ask')
+    store.updateProject(p.id, { permissionMode: 'auto-edit', instructions: 'use pnpm' })
+    expect(store.getProject(p.id)).toMatchObject({
+      permissionMode: 'auto-edit',
+      instructions: 'use pnpm',
+    })
+    const c = store.createConversation({ projectId: p.id })
+    store.createConversation()
+    expect(store.listConversations({ projectId: p.id }).map((x) => x.id)).toEqual([c.id])
+    store.deleteProject(p.id)
+    expect(store.listProjects()).toHaveLength(0)
+    expect(store.getConversation(c.id)).toBeUndefined()
+    expect(store.listConversations()).toHaveLength(1)
+  })
+})
+
+describe('transaction', () => {
+  it('rolls back nested work atomically', () => {
+    expect(() =>
+      store.transaction(() => {
+        store.createConversation({ title: 'outer' })
+        store.transaction(() => store.createConversation({ title: 'inner' }))
+        throw new Error('boom')
+      }),
+    ).toThrow('boom')
+    expect(store.listConversations()).toHaveLength(0)
+  })
+})

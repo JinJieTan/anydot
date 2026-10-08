@@ -1,4 +1,5 @@
-import { copyFile, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, stat, writeFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -8,6 +9,7 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  shell,
 } from 'electron'
 import { inferCapabilities, listModels, normalizeBaseUrl } from '@aitech/core'
 import { schemaVersion, type ProviderRow, type Store } from '@aitech/db'
@@ -23,6 +25,7 @@ import {
 import type { BlobStore } from './blobs'
 import type { ChatService } from './chat-service'
 import { exportData, importData } from './data-transfer'
+import { openPreview } from './preview'
 import { emit } from './events'
 import type { ImageService } from './image-service'
 import { decryptKey, encryptKey, keyHint, keyStorageKind } from './secrets'
@@ -202,15 +205,55 @@ export function registerIpc({ store, blobs, chat, images, dbPath }: Deps): void 
       emit('invalidate', { scope: 'models' })
     },
 
+    'projects.list': () => store.listProjects(),
+    'projects.create': async () => {
+      const win = BrowserWindow.getFocusedWindow()
+      const opts = {
+        title: '选择项目文件夹',
+        properties: ['openDirectory' as const, 'createDirectory' as const],
+      }
+      const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      const dir = res.filePaths[0]
+      if (res.canceled || !dir) return null
+      const existing = store.listProjects().find((p) => p.rootPath === dir)
+      if (existing) return existing
+      const project = store.createProject({ name: basename(dir) || dir, rootPath: dir })
+      emit('invalidate', { scope: 'projects' })
+      return project
+    },
+    'projects.update': (id, patch) => {
+      const p = store.updateProject(id, patch)
+      emit('invalidate', { scope: 'projects' })
+      return p
+    },
+    'projects.delete': (id) => {
+      for (const c of store.listConversations({ projectId: id })) chat.stop(c.id)
+      store.deleteProject(id)
+      emit('invalidate', { scope: 'all' })
+    },
+    'projects.reveal': async (id) => {
+      const p = store.getProject(id)
+      if (!p) throw new Error('项目不存在')
+      if (!(await stat(p.rootPath).catch(() => null)))
+        throw new Error(`文件夹不存在：${p.rootPath}`)
+      await shell.openPath(p.rootPath)
+    },
+
     'conversations.list': (opts) => store.listConversations({ search: opts?.search }),
     'conversations.get': (id) => {
       const conversation = store.getConversation(id)
       return conversation ? { conversation, messages: store.listMessages(id) } : null
     },
-    'conversations.create': (input) => {
+    'conversations.create': async (input) => {
       const s = getSettings()
+      const project = input?.projectId ? store.getProject(input.projectId) : undefined
+      if (input?.projectId && !project) throw new Error('项目不存在')
+      if (project && !(await stat(project.rootPath).catch(() => null))) {
+        throw new Error(`项目文件夹不存在：${project.rootPath}`)
+      }
       return store.createConversation({
-        modelId: input?.modelId ?? s.defaultModelId,
+        projectId: project?.id ?? null,
+        modelId: input?.modelId ?? project?.defaultModelId ?? s.defaultModelId,
         thinking: s.defaultThinking,
       })
     },
@@ -230,6 +273,11 @@ export function registerIpc({ store, blobs, chat, images, dbPath }: Deps): void 
     'chat.switchBranch': ({ conversationId, messageId }) =>
       chat.switchBranch(conversationId, messageId),
     'chat.running': () => chat.runningConversations(),
+    'chat.approve': ({ conversationId, toolCallId, decision }) =>
+      chat.approve(conversationId, toolCallId, decision),
+    'chat.approvals': () => chat.pendingApprovals(),
+
+    'preview.html': (html) => openPreview(html),
 
     'blobs.put': async ({ data, mime, name }) => {
       if (data.byteLength > 50 * 1024 * 1024) throw new Error('文件过大（上限 50MB）')

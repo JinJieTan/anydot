@@ -5,14 +5,8 @@
  * preload only forwards method names listed in RPC_METHODS. Keys never cross
  * into the renderer: providers expose `hasKey` / `keyHint` instead.
  */
-import type {
-  Capability,
-  MessagePart,
-  Protocol,
-  ProviderType,
-  ThinkingLevel,
-  Usage,
-} from '@aitech/core'
+import type { AgentEvent, ApprovalDecision, ApprovalRequest } from '@aitech/agent'
+import type { Capability, MessagePart, Protocol, ProviderType, ThinkingLevel } from '@aitech/core'
 import type {
   ConversationParams,
   ConversationRow,
@@ -20,6 +14,8 @@ import type {
   ImageJobRow,
   MessageRow,
   ModelRow,
+  PermissionMode,
+  ProjectRow,
 } from '@aitech/db'
 
 export interface AppInfo {
@@ -45,6 +41,13 @@ export type ModelDTO = ModelRow
 export type ConversationDTO = ConversationRow
 export type MessageDTO = MessageRow
 export type ImageJobDTO = ImageJobRow
+export type ProjectDTO = ProjectRow
+export type { ApprovalDecision, PermissionMode }
+
+/** A tool call waiting for the user's decision. */
+export interface ApprovalDTO extends ApprovalRequest {
+  conversationId: string
+}
 
 export interface ProviderInput {
   name: string
@@ -137,9 +140,28 @@ export interface Rpc {
   ) => ModelDTO
   'models.delete': (id: string) => void
 
+  'projects.list': () => ProjectDTO[]
+  /** Opens a folder picker; null if cancelled. */
+  'projects.create': () => ProjectDTO | null
+  'projects.update': (
+    id: string,
+    patch: {
+      name?: string
+      instructions?: string | null
+      defaultModelId?: string | null
+      permissionMode?: PermissionMode
+    },
+  ) => ProjectDTO
+  /** Removes the project from the app; files on disk are untouched. */
+  'projects.delete': (id: string) => void
+  'projects.reveal': (id: string) => void
+
   'conversations.list': (opts?: { search?: string }) => ConversationDTO[]
   'conversations.get': (id: string) => ConversationDetail | null
-  'conversations.create': (input?: { modelId?: string | null }) => ConversationDTO
+  'conversations.create': (input?: {
+    modelId?: string | null
+    projectId?: string | null
+  }) => ConversationDTO
   'conversations.update': (
     id: string,
     patch: {
@@ -168,6 +190,15 @@ export interface Rpc {
   /** Make the newest leaf below `messageId` the active branch. */
   'chat.switchBranch': (input: { conversationId: string; messageId: string }) => ConversationDTO
   'chat.running': () => string[]
+  'chat.approve': (input: {
+    conversationId: string
+    toolCallId: string
+    decision: ApprovalDecision
+  }) => void
+  'chat.approvals': () => ApprovalDTO[]
+
+  /** Open model-generated HTML in an isolated preview window. */
+  'preview.html': (html: string) => void
 
   'blobs.put': (input: { data: Uint8Array; mime: string; name: string }) => Attachment
   'blobs.saveAs': (input: { sha256: string; suggestedName: string }) => boolean
@@ -198,6 +229,11 @@ export const RPC_METHODS: readonly RpcMethod[] = [
   'models.add',
   'models.update',
   'models.delete',
+  'projects.list',
+  'projects.create',
+  'projects.update',
+  'projects.delete',
+  'projects.reveal',
   'conversations.list',
   'conversations.get',
   'conversations.create',
@@ -209,6 +245,9 @@ export const RPC_METHODS: readonly RpcMethod[] = [
   'chat.stop',
   'chat.switchBranch',
   'chat.running',
+  'chat.approve',
+  'chat.approvals',
+  'preview.html',
   'blobs.put',
   'blobs.saveAs',
   'blobs.copyImage',
@@ -225,12 +264,16 @@ export type ChatStreamEvent =
   | { type: 'delta'; conversationId: string; messageId: string; text?: string; reasoning?: string }
   | { type: 'done'; conversationId: string; message: MessageDTO }
   | { type: 'conversation'; conversation: ConversationDTO }
+  /** A reply/agent run started or ended for this conversation. */
+  | { type: 'run'; conversationId: string; running: boolean; error?: string }
+  | { type: 'approval'; approval: ApprovalDTO }
+  | { type: 'approval-resolved'; conversationId: string; toolCallId: string }
 
 export interface Events {
   chat: ChatStreamEvent
   image: ImageJobDTO
   /** Something changed outside the current view (import, provider edits). */
-  invalidate: { scope: 'conversations' | 'providers' | 'models' | 'images' | 'all' }
+  invalidate: { scope: 'conversations' | 'providers' | 'models' | 'images' | 'projects' | 'all' }
 }
 
 export type EventName = keyof Events
@@ -238,36 +281,48 @@ export type EventName = keyof Events
 export const EVENT_CHANNEL = (name: EventName) => `event:${name}`
 
 /** Messages between main and the agent utilityProcess. */
-export interface AgentChatStart {
-  type: 'chat.start'
-  runId: string
-  request: {
-    provider: { baseUrl: string; apiKey: string; type: ProviderType }
-    modelId: string
-    protocol: Protocol | null
-    messages: unknown[]
-    system?: string
-    temperature?: number
-    maxOutputTokens?: number
-    thinking: ThinkingLevel
+export interface AgentRunRequest {
+  provider: { baseUrl: string; apiKey: string; type: ProviderType }
+  modelId: string
+  protocol: Protocol | null
+  messages: unknown[]
+  temperature?: number
+  maxOutputTokens?: number
+  thinking: ThinkingLevel
+  /** Plain chat: the conversation's own system prompt, no tools. */
+  system?: string
+  /** Present for project conversations: run as a coding agent. */
+  agent?: {
+    cwd: string
+    mode: PermissionMode
+    projectName: string
+    projectInstructions: string | null
+    userSystemPrompt: string | null
+    allowed: string[]
+    imageModel?: {
+      provider: { baseUrl: string; apiKey: string; type: ProviderType }
+      modelId: string
+    }
   }
 }
 
 export type AgentRequest =
-  { type: 'ping'; id: string } | AgentChatStart | { type: 'chat.abort'; runId: string }
+  | { type: 'ping'; id: string }
+  | { type: 'run.start'; runId: string; request: AgentRunRequest }
+  | { type: 'run.abort'; runId: string }
+  | { type: 'run.approve'; runId: string; toolCallId: string; decision: ApprovalDecision }
 
 export type AgentResponse =
   | { type: 'pong'; id: string; pid: number }
+  | { type: 'run.event'; runId: string; event: AgentEvent }
+  | { type: 'run.approval'; runId: string; request: ApprovalRequest }
   | {
-      type: 'chat.event'
+      type: 'run.end'
       runId: string
-      event:
-        | { type: 'text'; text: string }
-        | { type: 'reasoning'; text: string }
-        | { type: 'tool-call'; id: string; name: string; input: unknown }
-        | { type: 'finish'; usage: Usage; finishReason: string }
-        | { type: 'error'; message: string }
+      status: 'done' | 'aborted' | 'error' | 'max-steps'
+      error?: string
+      /** Updated "always allow" keys for the conversation. */
+      allowed: string[]
     }
-  | { type: 'chat.end'; runId: string; aborted: boolean }
 
 export type { MessagePart }

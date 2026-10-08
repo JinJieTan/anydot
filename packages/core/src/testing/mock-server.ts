@@ -24,6 +24,8 @@ export interface MockRequestInfo {
   headers: IncomingMessage['headers']
   /** Last user message text, flattened. */
   lastUserText: string
+  /** Tool results sent back by the client, in order (any protocol). */
+  toolResults: string[]
 }
 
 export interface MockServerOptions {
@@ -73,6 +75,7 @@ export async function startMockServer(opts: MockServerOptions = {}): Promise<Moc
       body: isJson ? body : raw.toString('latin1'),
       headers: req.headers,
       lastUserText: lastUserText(body),
+      toolResults: toolResults(body),
     }
     requests.push(info)
 
@@ -120,6 +123,7 @@ function json(res: ServerResponse, status: number, data: unknown) {
 }
 
 let streamDelay = 0
+let callSeq = 0
 
 /**
  * SSE writer. Events are queued and flushed with `streamDelay` between them;
@@ -168,6 +172,26 @@ function lastUserText(body: Record<string, unknown>): string {
     if (list[i]?.role === 'user') return flatten(list[i]!.content)
   }
   return ''
+}
+
+function toolResults(body: Record<string, unknown>): string[] {
+  const out: string[] = []
+  const str = (v: unknown) =>
+    typeof v === 'string'
+      ? v
+      : Array.isArray(v)
+        ? v.map((c: { text?: string }) => c.text ?? '').join('')
+        : JSON.stringify(v)
+  for (const m of (body.messages ?? body.input ?? []) as Record<string, unknown>[]) {
+    if (m.type === 'function_call_output') out.push(str(m.output)) // OpenAI Responses
+    if (m.role === 'tool') out.push(str(m.content)) // OpenAI Chat
+    if (Array.isArray(m.content)) {
+      for (const c of m.content as Record<string, unknown>[]) {
+        if (c.type === 'tool_result') out.push(str(c.content)) // Anthropic
+      }
+    }
+  }
+  return out
 }
 
 function streamAnthropic(res: ServerResponse, model: string, r: MockReply) {
@@ -221,11 +245,11 @@ function streamAnthropic(res: ServerResponse, model: string, r: MockReply) {
     send('content_block_stop', { type: 'content_block_stop', index })
     index++
   }
-  for (const [i, call] of (r.toolCalls ?? []).entries()) {
+  for (const call of r.toolCalls ?? []) {
     send('content_block_start', {
       type: 'content_block_start',
       index,
-      content_block: { type: 'tool_use', id: `toolu_${i}`, name: call.name, input: {} },
+      content_block: { type: 'tool_use', id: `toolu_${++callSeq}`, name: call.name, input: {} },
     })
     send('content_block_delta', {
       type: 'content_block_delta',
@@ -278,12 +302,13 @@ function streamResponses(res: ServerResponse, model: string, r: MockReply) {
     })
     out++
   }
-  for (const [i, call] of (r.toolCalls ?? []).entries()) {
+  for (const call of r.toolCalls ?? []) {
     const args = JSON.stringify(call.input)
+    const n = ++callSeq
     const item = {
       type: 'function_call',
-      id: `fc_${i}`,
-      call_id: `call_${i}`,
+      id: `fc_${n}`,
+      call_id: `call_${n}`,
       name: call.name,
       arguments: '',
     }
@@ -339,7 +364,7 @@ function streamChat(res: ServerResponse, model: string, r: MockReply) {
             tool_calls: [
               {
                 index: i,
-                id: `call_${i}`,
+                id: `call_${++callSeq}`,
                 type: 'function',
                 function: { name: call.name, arguments: JSON.stringify(call.input) },
               },

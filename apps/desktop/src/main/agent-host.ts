@@ -1,13 +1,21 @@
 import { join } from 'node:path'
 import { utilityProcess, type UtilityProcess } from 'electron'
+import type { AgentEvent, ApprovalDecision, ApprovalRequest } from '@aitech/agent'
 import { newId } from '@aitech/core'
-import type { AgentChatStart, AgentRequest, AgentResponse } from '../shared/ipc'
+import type { AgentRequest, AgentResponse, AgentRunRequest } from '../shared/ipc'
 
-type ChatEvent = Extract<AgentResponse, { type: 'chat.event' }>['event']
+export type RunEnd = Extract<AgentResponse, { type: 'run.end' }>
 
-interface RunHandlers {
-  onEvent: (event: ChatEvent) => void
-  onEnd: (aborted: boolean) => void
+export interface RunHandlers {
+  onEvent: (event: AgentEvent) => void
+  onApproval: (request: ApprovalRequest) => void
+  onEnd: (end: RunEnd) => void
+}
+
+export interface RunHandle {
+  runId: string
+  abort: () => void
+  approve: (toolCallId: string, decision: ApprovalDecision) => void
 }
 
 /** Owns the agent utilityProcess and restarts it if it exits unexpectedly. */
@@ -25,12 +33,17 @@ export class AgentHost {
     child.on('message', (res: AgentResponse) => this.onMessage(res))
     child.on('exit', (code) => {
       this.child = null
-      // Fail any in-flight runs so their messages don't stay "streaming" forever.
+      // Fail in-flight runs so their messages don't stay "streaming" forever.
       for (const [runId, run] of this.runs) {
-        run.onEvent({ type: 'error', message: 'Agent 进程意外退出，请重试' })
-        run.onEnd(false)
-        this.runs.delete(runId)
+        run.onEnd({
+          type: 'run.end',
+          runId,
+          status: 'error',
+          error: 'Agent 进程意外退出，请重试',
+          allowed: [],
+        })
       }
+      this.runs.clear()
       if (!this.stopping) {
         console.error(`[agent] exited with code ${code}, restarting`)
         setTimeout(() => this.start(), 1000)
@@ -56,29 +69,44 @@ export class AgentHost {
         this.pings.get(res.id)?.(res.pid)
         this.pings.delete(res.id)
         break
-      case 'chat.event':
+      case 'run.event':
         this.runs.get(res.runId)?.onEvent(res.event)
         break
-      case 'chat.end':
-        this.runs.get(res.runId)?.onEnd(res.aborted)
+      case 'run.approval':
+        this.runs.get(res.runId)?.onApproval(res.request)
+        break
+      case 'run.end':
+        this.runs.get(res.runId)?.onEnd(res)
         this.runs.delete(res.runId)
         break
     }
   }
 
-  /** Start a model stream. Returns a function that aborts it. */
-  chat(request: AgentChatStart['request'], handlers: RunHandlers): () => void {
+  run(request: AgentRunRequest, handlers: RunHandlers): RunHandle {
     const runId = newId()
     this.runs.set(runId, handlers)
     try {
-      this.post({ type: 'chat.start', runId, request })
+      this.post({ type: 'run.start', runId, request })
     } catch (err) {
       this.runs.delete(runId)
-      handlers.onEvent({ type: 'error', message: (err as Error).message })
-      handlers.onEnd(false)
+      queueMicrotask(() =>
+        handlers.onEnd({
+          type: 'run.end',
+          runId,
+          status: 'error',
+          error: (err as Error).message,
+          allowed: [],
+        }),
+      )
     }
-    return () => {
-      if (this.runs.has(runId)) this.post({ type: 'chat.abort', runId })
+    return {
+      runId,
+      abort: () => {
+        if (this.runs.has(runId)) this.post({ type: 'run.abort', runId })
+      },
+      approve: (toolCallId, decision) => {
+        if (this.runs.has(runId)) this.post({ type: 'run.approve', runId, toolCallId, decision })
+      },
     }
   }
 

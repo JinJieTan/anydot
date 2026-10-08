@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { ConversationDTO, ModelDTO, ProviderDTO, Settings } from '../../../shared/ipc'
+import type {
+  ConversationDTO,
+  ModelDTO,
+  ProjectDTO,
+  ProviderDTO,
+  Settings,
+} from '../../../shared/ipc'
 import { DEFAULT_SETTINGS } from '../../../shared/ipc'
 import { invoke } from '../lib/api'
 
@@ -12,6 +18,7 @@ interface AppState {
   search: string
   providers: ProviderDTO[]
   models: ModelDTO[]
+  projects: ProjectDTO[]
   settings: Settings
   running: Set<string>
   toast: { id: number; text: string; kind: 'info' | 'error' } | null
@@ -21,6 +28,8 @@ interface AppState {
   setSearch: (q: string) => void
   loadConversations: () => Promise<void>
   loadProviders: () => Promise<void>
+  loadProjects: () => Promise<void>
+  upsertProject: (p: ProjectDTO) => void
   loadModels: () => Promise<void>
   loadSettings: () => Promise<void>
   updateSettings: (patch: Partial<Settings>) => Promise<void>
@@ -39,6 +48,7 @@ export const useApp = create<AppState>((set, get) => ({
   search: '',
   providers: [],
   models: [],
+  projects: [],
   settings: DEFAULT_SETTINGS,
   running: new Set(),
   toast: null,
@@ -57,6 +67,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (get().search === q) set({ conversations: list })
   },
   loadProviders: async () => set({ providers: await invoke('providers.list') }),
+  loadProjects: async () => set({ projects: await invoke('projects.list') }),
+  upsertProject: (p) => set((s) => ({ projects: [p, ...s.projects.filter((x) => x.id !== p.id)] })),
   loadModels: async () => set({ models: await invoke('models.available') }),
   loadSettings: async () => set({ settings: await invoke('settings.get') }),
   updateSettings: async (patch) => set({ settings: await invoke('settings.set', patch) }),

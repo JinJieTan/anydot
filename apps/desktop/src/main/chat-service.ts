@@ -1,4 +1,5 @@
-import { toModelMessages, type MessagePart, type Usage } from '@aitech/core'
+import type { ApprovalDecision } from '@aitech/agent'
+import { toModelMessages, type MessagePart } from '@aitech/core'
 import {
   newestLeafFrom,
   pathToLeaf,
@@ -6,16 +7,35 @@ import {
   type MessageRow,
   type Store,
 } from '@aitech/db'
-import type { Attachment, ChatStreamEvent, Settings } from '../shared/ipc'
-import type { AgentHost } from './agent-host'
+import type {
+  AgentRunRequest,
+  ApprovalDTO,
+  Attachment,
+  ChatStreamEvent,
+  Settings,
+} from '../shared/ipc'
+import type { AgentHost, RunHandle } from './agent-host'
 import type { BlobStore } from './blobs'
 import { decryptKey } from './secrets'
 
 const TITLE_MAX = 40
 
+interface ActiveRun {
+  handle: RunHandle | null
+  aborted: boolean
+  approvals: Map<string, ApprovalDTO>
+}
+
+/**
+ * Drives a reply for a conversation. Plain chats are a single model turn;
+ * project conversations run the coding agent. Each agent step is persisted as
+ * an assistant message and each tool result as a tool message, chained by
+ * parentId, so the stored tree replays exactly what the model saw.
+ */
 export class ChatService {
-  /** conversationId → abort function for the in-flight reply */
-  private running = new Map<string, () => void>()
+  private runs = new Map<string, ActiveRun>()
+  /** "Always allow" keys, per conversation, for this app session. */
+  private allowed = new Map<string, string[]>()
 
   constructor(
     private readonly store: Store,
@@ -26,7 +46,11 @@ export class ChatService {
   ) {}
 
   runningConversations(): string[] {
-    return [...this.running.keys()]
+    return [...this.runs.keys()]
+  }
+
+  pendingApprovals(): ApprovalDTO[] {
+    return [...this.runs.values()].flatMap((r) => [...r.approvals.values()])
   }
 
   send(conversationId: string, text: string, attachments: Attachment[]): void {
@@ -86,7 +110,18 @@ export class ChatService {
   }
 
   stop(conversationId: string): void {
-    this.running.get(conversationId)?.()
+    const run = this.runs.get(conversationId)
+    if (!run) return
+    run.aborted = true
+    run.handle?.abort()
+  }
+
+  approve(conversationId: string, toolCallId: string, decision: ApprovalDecision): void {
+    const run = this.runs.get(conversationId)
+    if (!run?.approvals.has(toolCallId)) throw new Error('该操作已不在等待确认')
+    run.approvals.delete(toolCallId)
+    run.handle?.approve(toolCallId, decision)
+    this.emit({ type: 'approval-resolved', conversationId, toolCallId })
   }
 
   switchBranch(conversationId: string, messageId: string): ConversationRow {
@@ -98,13 +133,13 @@ export class ChatService {
   }
 
   stopAll(): void {
-    for (const abort of this.running.values()) abort()
+    for (const id of this.runs.keys()) this.stop(id)
   }
 
   private requireIdle(conversationId: string): ConversationRow {
     const conv = this.store.getConversation(conversationId)
     if (!conv) throw new Error('对话不存在')
-    if (this.running.has(conversationId)) throw new Error('正在生成回复，请先停止')
+    if (this.runs.has(conversationId)) throw new Error('正在生成回复，请先停止')
     return conv
   }
 
@@ -114,130 +149,198 @@ export class ChatService {
       .listAvailableModels()
       .filter((m) => m.capabilities.includes('chat'))
     if (conv.modelId && available.some((m) => m.id === conv.modelId)) return conv
+    const project = conv.projectId ? this.store.getProject(conv.projectId) : undefined
     const fallback =
-      available.find((m) => m.id === this.settings().defaultModelId) ?? available[0] ?? null
+      available.find((m) => m.id === project?.defaultModelId) ??
+      available.find((m) => m.id === this.settings().defaultModelId) ??
+      available[0] ??
+      null
     if (!fallback) throw new Error('还没有可用的对话模型，请先在设置中添加服务商并获取模型')
     const updated = this.store.updateConversation(conv.id, { modelId: fallback.id })
     this.emit({ type: 'conversation', conversation: updated })
     return updated
   }
 
+  private credentials(modelId: string) {
+    const model = this.store.getModel(modelId)
+    if (!model) return null
+    const provider = this.store.getProvider(model.providerId)
+    const apiKey = provider?.enabled ? decryptKey(provider.keyRef) : null
+    if (!provider || !apiKey) return null
+    return { model, provider: { baseUrl: provider.baseUrl, apiKey, type: provider.type } }
+  }
+
+  private imageModel() {
+    const images = this.store.listAvailableModels().filter((m) => m.capabilities.includes('image'))
+    const pick = images.find((m) => m.id === this.settings().defaultImageModelId) ?? images[0]
+    const creds = pick && this.credentials(pick.id)
+    return creds ? { provider: creds.provider, modelId: creds.model.modelId } : undefined
+  }
+
   private reply(conversationId: string, user: MessageRow): void {
     const conv = this.ensureModel(this.store.getConversation(conversationId)!)
-    const model = this.store.getModel(conv.modelId!)!
-    const provider = this.store.getProvider(model.providerId)
-    const apiKey = provider && decryptKey(provider.keyRef)
+    const creds = this.credentials(conv.modelId!)
+    const project = conv.projectId ? this.store.getProject(conv.projectId) : undefined
 
-    const assistant = this.store.addMessage({
-      conversationId,
-      parentId: user.id,
-      role: 'assistant',
-      parts: [],
-      modelId: model.modelId,
-      status: 'streaming',
-    })
-    this.emit({ type: 'message', conversationId, message: assistant })
+    const run: ActiveRun = { handle: null, aborted: false, approvals: new Map() }
+    this.runs.set(conversationId, run)
+    this.emit({ type: 'run', conversationId, running: true })
 
-    if (!provider || !apiKey) {
-      this.finish(conversationId, assistant.id, [], 'error', null, '服务商未配置 Key')
-      return
+    // Persisted chain for this run: each new message hangs off the previous one.
+    let leaf = user.id
+    let current: { id: string; parts: MessagePart[] } | null = null
+
+    const addAssistant = (parts: MessagePart[], status: MessageRow['status'], error?: string) => {
+      const m = this.store.addMessage({
+        conversationId,
+        parentId: leaf,
+        role: 'assistant',
+        parts,
+        modelId: creds?.model.modelId ?? null,
+        status,
+      })
+      leaf = m.id
+      const final =
+        status === 'streaming' ? m : this.store.finishMessage(m.id, { parts, status, error })
+      this.emit({
+        type: status === 'streaming' ? 'message' : 'done',
+        conversationId,
+        message: final,
+      })
+      return m
     }
 
-    let text = ''
-    let reasoning = ''
-    const toolCalls: MessagePart[] = []
-    let usage: Usage | null = null
-    let error: string | null = null
+    const end = (error?: string) => {
+      if (current) {
+        const m = this.store.finishMessage(current.id, {
+          parts: current.parts,
+          status: run.aborted ? 'aborted' : 'error',
+          error: run.aborted ? null : (error ?? '生成中断'),
+        })
+        this.emit({ type: 'done', conversationId, message: m })
+        current = null
+      }
+      for (const toolCallId of run.approvals.keys()) {
+        this.emit({ type: 'approval-resolved', conversationId, toolCallId })
+      }
+      this.runs.delete(conversationId)
+      this.emit({ type: 'run', conversationId, running: false, error })
+    }
 
-    const parts = (): MessagePart[] => [
-      ...(reasoning ? [{ type: 'reasoning' as const, text: reasoning }] : []),
-      ...(text ? [{ type: 'text' as const, text }] : []),
-      ...toolCalls,
-    ]
-
-    // Register before any await so a quick second send is rejected.
-    let abort: (() => void) | null = null
-    let aborted = false
-    this.running.set(conversationId, () => {
-      aborted = true
-      abort?.()
-    })
+    if (!creds) {
+      addAssistant([], 'error', '模型或服务商不可用（可能被停用或缺少 Key）')
+      end()
+      return
+    }
 
     void (async () => {
       try {
         const path = pathToLeaf(this.store.listMessages(conversationId), user.id)
-        const messages = await toModelMessages(path, (sha) => this.blobs.read(sha))
-        if (aborted) {
-          this.finish(conversationId, assistant.id, [], 'aborted', null, null)
-          return
+        const messages = await toModelMessages(path, (sha) => this.blobs.read(sha), {
+          maxOldToolResultChars: 2000,
+          keepRecentToolResults: 20,
+        })
+        if (run.aborted) return end()
+
+        const request: AgentRunRequest = {
+          provider: creds.provider,
+          modelId: creds.model.modelId,
+          protocol: creds.model.protocol,
+          messages,
+          temperature: conv.params.temperature,
+          maxOutputTokens: conv.params.maxOutputTokens,
+          thinking: creds.model.capabilities.includes('reasoning') ? conv.thinking : 'off',
+          system: project ? undefined : (conv.systemPrompt ?? undefined),
+          agent: project && {
+            cwd: project.rootPath,
+            mode: project.permissionMode,
+            projectName: project.name,
+            projectInstructions: project.instructions,
+            userSystemPrompt: conv.systemPrompt,
+            allowed: this.allowed.get(conversationId) ?? [],
+            imageModel: this.imageModel(),
+          },
         }
-        abort = this.agent.chat(
-          {
-            provider: { baseUrl: provider.baseUrl, apiKey, type: provider.type },
-            modelId: model.modelId,
-            protocol: model.protocol,
-            messages,
-            system: conv.systemPrompt ?? undefined,
-            temperature: conv.params.temperature,
-            maxOutputTokens: conv.params.maxOutputTokens,
-            thinking: model.capabilities.includes('reasoning') ? conv.thinking : 'off',
-          },
-          {
-            onEvent: (e) => {
-              switch (e.type) {
-                case 'text':
-                  text += e.text
-                  this.emit({
-                    type: 'delta',
-                    conversationId,
-                    messageId: assistant.id,
-                    text: e.text,
-                  })
-                  break
-                case 'reasoning':
-                  reasoning += e.text
-                  this.emit({
-                    type: 'delta',
-                    conversationId,
-                    messageId: assistant.id,
-                    reasoning: e.text,
-                  })
-                  break
-                case 'tool-call':
-                  toolCalls.push({ type: 'tool_call', id: e.id, name: e.name, input: e.input })
-                  break
-                case 'finish':
-                  usage = e.usage
-                  break
-                case 'error':
-                  error = e.message
-                  break
+
+        run.handle = this.agent.run(request, {
+          onEvent: (e) => {
+            switch (e.type) {
+              case 'step-start': {
+                const m = addAssistant([], 'streaming')
+                current = { id: m.id, parts: [] }
+                break
               }
-            },
-            onEnd: (wasAborted) => {
-              const status = error ? 'error' : wasAborted || aborted ? 'aborted' : 'complete'
-              this.finish(conversationId, assistant.id, parts(), status, usage, error)
-            },
+              case 'text':
+              case 'reasoning':
+                if (!current) break
+                appendDelta(current.parts, e.type, e.text)
+                this.emit({
+                  type: 'delta',
+                  conversationId,
+                  messageId: current.id,
+                  [e.type]: e.text,
+                })
+                break
+              case 'step-end': {
+                if (!current) break
+                const status = e.error ? 'error' : run.aborted ? 'aborted' : 'complete'
+                const m = this.store.finishMessage(current.id, {
+                  parts: e.parts,
+                  status,
+                  usage: e.usage,
+                  error: e.error ?? null,
+                })
+                this.emit({ type: 'done', conversationId, message: m })
+                current = null
+                break
+              }
+              case 'tool-result': {
+                const m = this.store.addMessage({
+                  conversationId,
+                  parentId: leaf,
+                  role: 'tool',
+                  parts: [
+                    {
+                      type: 'tool_result',
+                      id: e.toolCallId,
+                      name: e.name,
+                      output: e.output,
+                      isError: e.isError,
+                    },
+                  ],
+                })
+                leaf = m.id
+                this.emit({ type: 'message', conversationId, message: m })
+                break
+              }
+            }
           },
-        )
+          onApproval: (request) => {
+            const approval: ApprovalDTO = { ...request, conversationId }
+            run.approvals.set(request.toolCallId, approval)
+            this.emit({ type: 'approval', approval })
+          },
+          onEnd: (res) => {
+            this.allowed.set(conversationId, res.allowed)
+            if (res.status === 'max-steps') addAssistant([], 'error', res.error)
+            end(res.status === 'error' ? res.error : undefined)
+          },
+        })
+        // Stop requested while we were preparing.
+        if (run.aborted) run.handle.abort()
       } catch (err) {
-        this.finish(conversationId, assistant.id, parts(), 'error', null, (err as Error).message)
+        addAssistant([], 'error', (err as Error).message)
+        end()
       }
     })()
   }
+}
 
-  private finish(
-    conversationId: string,
-    messageId: string,
-    parts: MessagePart[],
-    status: MessageRow['status'],
-    usage: Usage | null,
-    error: string | null,
-  ) {
-    this.running.delete(conversationId)
-    const message = this.store.finishMessage(messageId, { parts, status, usage, error })
-    this.emit({ type: 'done', conversationId, message })
-  }
+function appendDelta(parts: MessagePart[], type: 'text' | 'reasoning', chunk: string) {
+  const last = parts.findLast((p) => p.type === type) as
+    { type: typeof type; text: string } | undefined
+  if (last) last.text += chunk
+  else parts.push({ type, text: chunk })
 }
 
 function userParts(text: string, attachments: Attachment[]): MessagePart[] {

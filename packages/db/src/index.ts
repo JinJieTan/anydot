@@ -49,5 +49,7 @@ export type {
   ImageJobStatus,
   MessageRow,
   ModelRow,
+  PermissionMode,
+  ProjectRow,
   ProviderRow,
 } from './store'

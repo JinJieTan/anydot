@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@aitech/agent": "workspace:*",
     "@aitech/core": "workspace:*",
     "@aitech/db": "workspace:*",
     "@tailwindcss/vite": "4.3.3",

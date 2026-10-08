@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChatStreamEvent, ConversationDTO, MessageDTO } from '../../../shared/ipc'
+import type { ApprovalDTO, ChatStreamEvent, ConversationDTO, MessageDTO } from '../../../shared/ipc'
 import { invoke } from '../lib/api'
 import { useApp } from './app'
 
@@ -7,7 +7,10 @@ interface ChatState {
   /** Loaded conversation details, keyed by id. */
   conversations: Record<string, ConversationDTO>
   messages: Record<string, MessageDTO[]>
+  /** Tool calls waiting for the user, keyed by toolCallId. */
+  approvals: Record<string, ApprovalDTO>
   load: (id: string) => Promise<void>
+  loadApprovals: () => Promise<void>
   apply: (e: ChatStreamEvent) => void
   setConversation: (c: ConversationDTO) => void
 }
@@ -23,6 +26,12 @@ function upsert(list: MessageDTO[], msg: MessageDTO): MessageDTO[] {
 export const useChat = create<ChatState>((set, get) => ({
   conversations: {},
   messages: {},
+  approvals: {},
+
+  loadApprovals: async () => {
+    const list = await invoke('chat.approvals')
+    set({ approvals: Object.fromEntries(list.map((a) => [a.toolCallId, a])) })
+  },
 
   load: async (id) => {
     const detail = await invoke('conversations.get', id)
@@ -67,9 +76,22 @@ export const useChat = create<ChatState>((set, get) => ({
         })
         const conv = get().conversations[conversationId]
         if (conv) app.upsertConversation(conv)
-        if (message.status === 'streaming') app.setRunning(conversationId, true)
         break
       }
+      case 'run':
+        app.setRunning(e.conversationId, e.running)
+        if (e.error) app.notify(e.error, 'error')
+        break
+      case 'approval':
+        set((s) => ({ approvals: { ...s.approvals, [e.approval.toolCallId]: e.approval } }))
+        break
+      case 'approval-resolved':
+        set((s) => {
+          const next = { ...s.approvals }
+          delete next[e.toolCallId]
+          return { approvals: next }
+        })
+        break
       case 'delta': {
         const { conversationId, messageId } = e
         set((s) => {
@@ -108,7 +130,6 @@ export const useChat = create<ChatState>((set, get) => ({
             [e.conversationId]: upsert(s.messages[e.conversationId] ?? [], e.message),
           },
         }))
-        app.setRunning(e.conversationId, false)
         break
     }
   },

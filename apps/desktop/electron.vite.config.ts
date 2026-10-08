@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 
 // Workspace packages ship TypeScript source, so they must be bundled, not externalized.
-const workspace = { exclude: ['@aitech/core', '@aitech/db'] }
+const workspace = { exclude: ['@aitech/agent', '@aitech/core', '@aitech/db'] }
 
 export default defineConfig({
   main: {

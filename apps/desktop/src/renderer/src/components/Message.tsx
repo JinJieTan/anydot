@@ -7,15 +7,15 @@ import {
   ChevronRight,
   Pencil,
   RotateCcw,
-  Wrench,
 } from 'lucide-react'
 import { memo, useState } from 'react'
 import type { MessagePart } from '@aitech/core'
-import type { Attachment, MessageDTO } from '../../../shared/ipc'
+import type { ApprovalDTO, Attachment, MessageDTO } from '../../../shared/ipc'
 import { blobUrl } from '../lib/api'
 import { formatTokens } from '../lib/format'
 import { AttachmentChip } from './Composer'
 import { CopyButton, Markdown } from './Markdown'
+import { ToolCall, type ToolResultPart } from './ToolCall'
 import { Button, Textarea } from './ui'
 
 const textOf = (parts: MessagePart[]) =>
@@ -186,11 +186,18 @@ export const AssistantMessage = memo(function AssistantMessage({
   branch,
   busy,
   onRegenerate,
+  results,
+  approvals,
+  endOfTurn,
 }: {
   message: MessageDTO
   branch: BranchProps
   busy: boolean
   onRegenerate: () => void
+  results: Map<string, ToolResultPart>
+  approvals: Record<string, ApprovalDTO>
+  /** Last message of an agent turn: show the action row. */
+  endOfTurn: boolean
 }) {
   const streaming = message.status === 'streaming'
   const text = textOf(message.parts)
@@ -210,16 +217,25 @@ export const AssistantMessage = memo(function AssistantMessage({
       ) : (
         streaming && !reasoning && <div className="streaming-caret h-6" />
       )}
-      {toolCalls.map((t) =>
-        t.type === 'tool_call' ? (
-          <div
-            key={t.id}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs text-fg-soft"
-          >
-            <Wrench className="size-3" />
-            {t.name}
-          </div>
-        ) : null,
+      {toolCalls.length > 0 && (
+        <div className={clsx(text && 'mt-2')}>
+          {toolCalls.map((t) =>
+            t.type === 'tool_call' ? (
+              <ToolCall
+                key={t.id}
+                name={t.name}
+                input={t.input}
+                result={results.get(t.id)}
+                approval={
+                  approvals[t.id]?.conversationId === message.conversationId && endOfTurn
+                    ? approvals[t.id]
+                    : undefined
+                }
+                running={busy}
+              />
+            ) : null,
+          )}
+        </div>
       )}
       {message.status === 'error' && (
         <div className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/8 px-3 py-2 text-sm text-red-700 dark:text-red-300">
@@ -229,7 +245,7 @@ export const AssistantMessage = memo(function AssistantMessage({
       )}
       {message.status === 'aborted' && <div className="mt-2 text-xs text-fg-faint">已停止</div>}
 
-      {!streaming && (
+      {!streaming && endOfTurn && (
         <div className="mt-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-[:focus-visible]:opacity-100">
           <BranchNav {...branch} />
           {text && <CopyButton text={text} className={actionBtn} />}

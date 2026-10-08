@@ -9,13 +9,16 @@ import { ImagesView } from './views/ImagesView'
 import { SettingsView } from './views/SettingsView'
 
 export function App() {
-  const { view, loadConversations, loadModels, loadProviders, loadSettings, toast } = useApp()
+  const { view, loadConversations, loadModels, loadProviders, loadProjects, loadSettings, toast } =
+    useApp()
 
   useEffect(() => {
     void loadSettings()
     void loadConversations()
     void loadProviders()
     void loadModels()
+    void loadProjects()
+    void useChat.getState().loadApprovals()
     void invoke('chat.running').then((ids) =>
       ids.forEach((id) => useApp.getState().setRunning(id, true)),
     )
@@ -26,19 +29,30 @@ export function App() {
       if (scope === 'providers' || scope === 'all') void app.loadProviders()
       if (scope === 'models' || scope === 'providers' || scope === 'all') void app.loadModels()
       if (scope === 'conversations' || scope === 'all') void app.loadConversations()
+      if (scope === 'projects' || scope === 'all') void app.loadProjects()
     })
     return () => {
       offChat()
       offInvalidate()
     }
-  }, [loadConversations, loadModels, loadProviders, loadSettings])
+  }, [loadConversations, loadModels, loadProviders, loadProjects, loadSettings])
 
-  const newChat = useCallback(async () => {
-    const c = await attempt(() => invoke('conversations.create'))
+  const newChat = useCallback(async (projectId?: string) => {
+    const c = await attempt(() =>
+      invoke('conversations.create', projectId ? { projectId } : undefined),
+    )
     if (!c) return
     useChat.getState().setConversation(c)
+    useChat.setState((s) => ({ messages: { ...s.messages, [c.id]: [] } }))
     useApp.getState().open(c.id)
   }, [])
+
+  const newProject = useCallback(async () => {
+    const p = await attempt(() => invoke('projects.create'))
+    if (!p) return
+    useApp.getState().upsertProject(p)
+    await newChat(p.id)
+  }, [newChat])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,7 +72,11 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar onNewChat={() => void newChat()} />
+      <Sidebar
+        onNewChat={() => void newChat()}
+        onNewTask={(id) => void newChat(id)}
+        onNewProject={() => void newProject()}
+      />
       <main className="relative flex min-w-0 flex-1 flex-col bg-surface">
         {view === 'chat' && <ChatView />}
         {view === 'images' && <ImagesView />}
