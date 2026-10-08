@@ -354,7 +354,10 @@ export class ChatService {
             projectInstructions: project.instructions,
             userSystemPrompt: conv.systemPrompt,
             allowed: this.allowed.get(conversationId) ?? [],
-            sandbox: this.settings().sandbox,
+            sandbox:
+              process.platform === 'win32'
+                ? this.settings().windowsSandbox
+                : this.settings().sandbox,
             browser: this.settings().browserTool,
             computer: this.settings().computerUse,
             computerBlocked: this.settings().computerUse ? computerBlocked() : undefined,

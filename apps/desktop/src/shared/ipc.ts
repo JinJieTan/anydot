@@ -83,6 +83,8 @@ export interface Settings {
   defaultThinking: ThinkingLevel
   /** Run agent commands in the OS sandbox (macOS). */
   sandbox: boolean
+  /** The experimental Windows sandbox (write restrictions only). */
+  windowsSandbox: boolean
   /** Offer the built-in browser tools to project agents. */
   browserTool: boolean
   /** Offer the computer tool (screen + mouse + keyboard) to project agents. */
@@ -97,6 +99,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultImageModelId: null,
   defaultThinking: 'off',
   sandbox: true,
+  windowsSandbox: false,
   browserTool: true,
   computerUse: false,
   computerDisplay: null,

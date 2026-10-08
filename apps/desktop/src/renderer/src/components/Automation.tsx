@@ -60,6 +60,7 @@ export function AutomationTab() {
   }
 
   const isMac = navigator.userAgent.includes('Mac')
+  const isWindows = navigator.userAgent.includes('Windows')
 
   return (
     <div className="max-w-2xl space-y-8 p-6">
@@ -67,20 +68,31 @@ export function AutomationTab() {
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-4 text-fg-soft" />
           <h2 className="text-base font-semibold">命令沙箱</h2>
-          {!isMac && <Badge>当前系统暂不支持</Badge>}
+          {isWindows && <Badge tone="warn">实验性</Badge>}
+          {!isMac && !isWindows && <Badge>当前系统暂不支持</Badge>}
           <div className="ml-auto">
             <Toggle
-              checked={isMac && settings.sandbox}
-              disabled={!isMac}
+              checked={isWindows ? settings.windowsSandbox : isMac && settings.sandbox}
+              disabled={!isMac && !isWindows}
               label="在沙箱中运行 Agent 的命令"
-              onChange={(sandbox) => void updateSettings({ sandbox })}
+              onChange={(on) =>
+                void updateSettings(isWindows ? { windowsSandbox: on } : { sandbox: on })
+              }
             />
           </div>
         </div>
-        <p className="mt-2 text-sm leading-relaxed text-fg-soft">
-          Agent 运行的命令只能写入项目目录、临时目录和包管理器缓存，读不到 ~/.ssh、~/.aws
-          等凭据，也改不了项目的 git hooks；可以正常联网。“全自动”模式下建议保持开启。
-        </p>
+        {isWindows ? (
+          <p className="mt-2 text-sm leading-relaxed text-fg-soft">
+            Agent 运行的命令只能写入项目目录、临时目录和包管理器缓存，也改不了项目的 git
+            hooks；可以正常联网。Windows 版目前只限制写入，读取不受限制（比如 ~/.ssh
+            仍然可读）。开启时会给这些目录添加一条只对沙箱生效的权限记录。
+          </p>
+        ) : (
+          <p className="mt-2 text-sm leading-relaxed text-fg-soft">
+            Agent 运行的命令只能写入项目目录、临时目录和包管理器缓存，读不到 ~/.ssh、~/.aws
+            等凭据，也改不了项目的 git hooks；可以正常联网。“全自动”模式下建议保持开启。
+          </p>
+        )}
         <p className="mt-2 text-sm leading-relaxed text-fg-soft">
           命令因沙箱限制失败时，Agent 可以申请在沙箱外重新运行，这一步无论哪种模式都需要你确认。
         </p>

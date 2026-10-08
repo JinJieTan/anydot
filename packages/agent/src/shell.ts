@@ -100,7 +100,7 @@ export interface SpawnOptions {
 export function spawnCommand(command: string, opts: SpawnOptions) {
   const { shell, args } = shellFor(opts.platform, opts.env)
   const target = opts.sandbox
-    ? sandboxSpawn(shell, [...args, command], { cwd: opts.cwd, home: opts.env.HOME })
+    ? sandboxSpawn(shell, [...args, command], opts)
     : { file: shell, args: [...args, command] }
   const child = spawn(target.file, target.args, {
     cwd: opts.cwd,

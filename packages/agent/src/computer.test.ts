@@ -154,3 +154,23 @@ describe('dropOldImages', () => {
     ).toBe(true)
   })
 })
+
+describe.runIf(process.platform === 'win32')('Windows driver', () => {
+  it('lists displays, captures one and moves the mouse', async () => {
+    const { nativeDriver } = await import('./computer')
+    const driver = nativeDriver('win32')!
+    try {
+      const displays = await driver.displays()
+      expect(displays.length).toBeGreaterThan(0)
+      const main = displays.find((d) => d.main) ?? displays[0]!
+      expect(main.bounds.width).toBeGreaterThan(0)
+      const jpeg = await driver.capture(main, { width: 320, height: 200 })
+      expect([...jpeg.subarray(0, 2)]).toEqual([0xff, 0xd8])
+      await driver.move({ x: main.bounds.x + 10, y: main.bounds.y + 10 })
+      const at = await driver.cursor()
+      expect(at).toEqual({ x: main.bounds.x + 10, y: main.bounds.y + 10 })
+    } finally {
+      driver.dispose()
+    }
+  }, 60_000)
+})

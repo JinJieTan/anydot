@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -40,7 +40,7 @@ describe('sandbox permissions', () => {
   })
 })
 
-describe.runIf(sandboxAvailable())('macOS sandbox', () => {
+describe.runIf(process.platform === 'darwin' && sandboxAvailable())('macOS sandbox', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aitech-sbx-'))
   const home = mkdtempSync(join(tmpdir(), 'aitech-home-'))
   mkdirSync(join(home, '.ssh'))
@@ -82,4 +82,48 @@ describe.runIf(sandboxAvailable())('macOS sandbox', () => {
     const h = await run('echo evil > .git/hooks/pre-commit')
     expect(h.exitCode).not.toBe(0)
   })
+})
+
+describe.runIf(process.platform === 'win32' && sandboxAvailable())('Windows sandbox', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aitech-sbx-'))
+  mkdirSync(join(dir, '.git', 'hooks'), { recursive: true })
+  writeFileSync(join(dir, '.git', 'config'), '[core]\n')
+  // Under the user profile but outside every writable directory.
+  const outside = join(
+    process.env.USERPROFILE ?? 'C:\\Users\\Public',
+    `aitech-sbx-${process.pid}.txt`,
+  )
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(outside, { force: true })
+  })
+
+  const run = (command: string) =>
+    runCommand(command, {
+      cwd: dir,
+      env: process.env,
+      platform: 'win32',
+      timeoutMs: 60_000,
+      signal: new AbortController().signal,
+      sandbox: true,
+    })
+
+  it('writes inside the project and temp dir and runs node', async () => {
+    const r = await run(
+      `Set-Content -Path a.txt -Value hi; Set-Content -Path "${join(tmpdir(), 'aitech-sbx-ok.txt')}" -Value ok; node -e "require('fs').writeFileSync('b.txt','x'); console.log('node ok')"; Get-Content a.txt`,
+    )
+    expect(r.output).toContain('node ok')
+    expect(r.output).toContain('hi')
+    expect(r.exitCode).toBe(0)
+  }, 60_000)
+
+  it('cannot write elsewhere or plant git hooks', async () => {
+    const w = await run(`Set-Content -Path "${outside}" -Value x`)
+    expect(existsSync(outside)).toBe(false)
+    expect(w.output).toMatch(/denied|UnauthorizedAccess/i)
+    await run('Set-Content -Path .git\\hooks\\pre-commit -Value evil')
+    expect(existsSync(join(dir, '.git', 'hooks', 'pre-commit'))).toBe(false)
+    await run('Add-Content -Path .git\\config -Value evil')
+    expect(readFileSync(join(dir, '.git', 'config'), 'utf8')).not.toContain('evil')
+  }, 60_000)
 })

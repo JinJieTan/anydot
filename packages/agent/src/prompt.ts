@@ -60,8 +60,8 @@ export function buildSystemPrompt(opts: {
     lines.push(
       '',
       '# Sandbox',
-      '- bash commands run in a sandbox: they can read files and use the network, but can only write inside the project, temp dirs and package-manager caches, and cannot read credentials like ~/.ssh.',
-      '- If a command fails because of the sandbox ("Operation not permitted"), rerun it with unsandboxed: true and briefly say why; the user has to approve it.',
+      '- bash commands run in a sandbox: they can read files and use the network, but can only write inside the project, temp dirs and package-manager caches.',
+      '- If a command fails because of the sandbox ("Operation not permitted" / "Access is denied"), rerun it with unsandboxed: true and briefly say why; the user has to approve it.',
     )
   }
   if (opts.browser) {
