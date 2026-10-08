@@ -1,16 +1,289 @@
 @import 'tailwindcss';
 
+/*
+ * Design tokens. Components use semantic names (bg-surface, text-fg-soft,
+ * border-line …) so light/dark is handled here only. Theme follows the OS
+ * unless the user picks one; main sets nativeTheme.themeSource accordingly.
+ */
 :root {
   color-scheme: light dark;
+  --canvas: #f7f7f5;
+  --surface: #ffffff;
+  --muted: #efefec;
+  --line: #e4e4df;
+  --line-strong: #cfcfc8;
+  --fg: #1c1c1a;
+  --fg-soft: #5d5d58;
+  --fg-faint: #94948d;
+  --accent: #4f5bd5;
+  --accent-strong: #3f4ac0;
+  --code-bg: #f3f3f0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #141413;
+    --surface: #1c1c1b;
+    --muted: #2a2a28;
+    --line: #2f2f2d;
+    --line-strong: #44443f;
+    --fg: #ececea;
+    --fg-soft: #b4b4ae;
+    --fg-faint: #7c7c76;
+    --accent: #7c86f0;
+    --accent-strong: #929bf4;
+    --code-bg: #121211;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-soft: var(--fg-soft);
+  --color-fg-faint: var(--fg-faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-code: var(--code-bg);
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  @apply bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'PingFang SC',
-    'Microsoft YaHei',
-    sans-serif;
+  margin: 0;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* macOS: hidden-inset title bar, so the top strip drags the window. */
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag,
+.drag button,
+.drag input,
+.drag select {
+  -webkit-app-region: no-drag;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* ── Markdown ─────────────────────────────────────────────── */
+.md {
+  font-size: 15px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md table,
+.md .code-block {
+  margin: 0.75em 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.4em 0 0.6em;
+}
+.md h1 {
+  font-size: 1.45em;
+}
+.md h2 {
+  font-size: 1.25em;
+}
+.md h3 {
+  font-size: 1.1em;
+}
+.md ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.md ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.md li {
+  margin: 0.25em 0;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0.25em 0;
+}
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md blockquote {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 1em;
+  color: var(--fg-soft);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.5em 0;
+}
+.md table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  font-size: 0.92em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 0.4em 0.75em;
+  text-align: left;
+}
+.md th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.md :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--muted);
+  border-radius: 5px;
+  padding: 0.12em 0.38em;
+}
+.md pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.9em 1em;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* ── Syntax highlighting (highlight.js classes) ───────────── */
+.hljs-comment,
+.hljs-quote {
+  color: #8a8a83;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: #a43ea8;
+}
+.hljs-string,
+.hljs-title.class_,
+.hljs-addition {
+  color: #3a7d2c;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-variable.constant_ {
+  color: #b5602a;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-name {
+  color: #2f62c9;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-type,
+.hljs-built_in {
+  color: #9a6a12;
+}
+.hljs-deletion {
+  color: #c0392b;
+}
+.hljs-meta {
+  color: #7a7a74;
+}
+@media (prefers-color-scheme: dark) {
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-literal,
+  .hljs-section,
+  .hljs-link {
+    color: #d68be0;
+  }
+  .hljs-string,
+  .hljs-title.class_,
+  .hljs-addition {
+    color: #9ed27a;
+  }
+  .hljs-number,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-variable.constant_ {
+    color: #f0a46c;
+  }
+  .hljs-title,
+  .hljs-title.function_,
+  .hljs-name {
+    color: #79a9f5;
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-property,
+  .hljs-type,
+  .hljs-built_in {
+    color: #e5c07b;
+  }
+  .hljs-deletion {
+    color: #f07a6c;
+  }
+}
+
+/* Blinking caret while a reply streams. */
+.streaming .md > :last-child:not(.code-block)::after,
+.streaming-caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--fg-soft);
+  animation: caret 1s steps(2) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
 }

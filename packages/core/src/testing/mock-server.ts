@@ -30,6 +30,8 @@ export interface MockServerOptions {
   apiKey?: string
   models?: string[]
   reply?: (req: MockRequestInfo) => MockReply
+  /** Delay between streamed events, to make streaming (and stopping) observable. */
+  delayMs?: number
 }
 
 export interface MockServer {
@@ -48,6 +50,7 @@ export async function startMockServer(opts: MockServerOptions = {}): Promise<Moc
   const apiKey = opts.apiKey ?? 'sk-test'
   const reply = opts.reply ?? ((r) => ({ text: `Echo: ${r.lastUserText}` }))
   const requests: MockRequestInfo[] = []
+  streamDelay = opts.delayMs ?? 0
 
   const server: Server = createServer(async (req, res) => {
     const path = (req.url ?? '').split('?')[0]!
@@ -116,12 +119,29 @@ function json(res: ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data))
 }
 
+let streamDelay = 0
+
+/**
+ * SSE writer. Events are queued and flushed with `streamDelay` between them;
+ * flushing stops early if the client disconnects (e.g. the user hit stop).
+ */
 function sse(res: ServerResponse) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-  return (event: string | null, data: unknown) => {
-    if (event) res.write(`event: ${event}\n`)
-    res.write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`)
+  const queue: string[] = []
+  const send = (event: string | null, data: unknown) => {
+    queue.push(
+      `${event ? `event: ${event}\n` : ''}data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`,
+    )
   }
+  const end = async () => {
+    for (const chunk of queue) {
+      if (res.destroyed) return
+      res.write(chunk)
+      if (streamDelay) await new Promise((r) => setTimeout(r, streamDelay))
+    }
+    res.end()
+  }
+  return Object.assign(send, { end })
 }
 
 /** Split text into a few chunks so streaming is actually exercised. */
@@ -221,7 +241,7 @@ function streamAnthropic(res: ServerResponse, model: string, r: MockReply) {
     usage: { output_tokens: 7 },
   })
   send('message_stop', { type: 'message_stop' })
-  res.end()
+  void send.end()
 }
 
 function streamResponses(res: ServerResponse, model: string, r: MockReply) {
@@ -297,7 +317,7 @@ function streamResponses(res: ServerResponse, model: string, r: MockReply) {
       },
     },
   })
-  res.end()
+  void send.end()
 }
 
 function streamChat(res: ServerResponse, model: string, r: MockReply) {
@@ -335,5 +355,5 @@ function streamChat(res: ServerResponse, model: string, r: MockReply) {
     usage: { prompt_tokens: 12, completion_tokens: 7, total_tokens: 19 },
   })
   send(null, '[DONE]')
-  res.end()
+  void send.end()
 }

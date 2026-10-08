@@ -1,61 +1,80 @@
-import { useEffect, useState } from 'react'
-import type { AgentPong, AppInfo } from '../../shared/ipc'
+import clsx from 'clsx'
+import { useCallback, useEffect } from 'react'
+import { Sidebar } from './components/Sidebar'
+import { invoke, api } from './lib/api'
+import { attempt, useApp } from './store/app'
+import { useChat } from './store/chat'
+import { ChatView } from './views/ChatView'
+import { ImagesView } from './views/ImagesView'
+import { SettingsView } from './views/SettingsView'
 
 export function App() {
-  const [info, setInfo] = useState<AppInfo | null>(null)
-  const [pong, setPong] = useState<AgentPong | null>(null)
+  const { view, loadConversations, loadModels, loadProviders, loadSettings, toast } = useApp()
 
   useEffect(() => {
-    void window.api.appInfo().then(setInfo)
-    void window.api.agentPing().then(setPong)
+    void loadSettings()
+    void loadConversations()
+    void loadProviders()
+    void loadModels()
+    void invoke('chat.running').then((ids) =>
+      ids.forEach((id) => useApp.getState().setRunning(id, true)),
+    )
+
+    const offChat = api.on('chat', (e) => useChat.getState().apply(e))
+    const offInvalidate = api.on('invalidate', ({ scope }) => {
+      const app = useApp.getState()
+      if (scope === 'providers' || scope === 'all') void app.loadProviders()
+      if (scope === 'models' || scope === 'providers' || scope === 'all') void app.loadModels()
+      if (scope === 'conversations' || scope === 'all') void app.loadConversations()
+    })
+    return () => {
+      offChat()
+      offInvalidate()
+    }
+  }, [loadConversations, loadModels, loadProviders, loadSettings])
+
+  const newChat = useCallback(async () => {
+    const c = await attempt(() => invoke('conversations.create'))
+    if (!c) return
+    useChat.getState().setConversation(c)
+    useApp.getState().open(c.id)
   }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        void newChat()
+      }
+      if (mod && e.key === ',') {
+        e.preventDefault()
+        useApp.getState().setView('settings')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [newChat])
+
   return (
-    <div className="flex h-screen">
-      <aside className="w-60 shrink-0 border-r border-neutral-200 bg-neutral-50 p-4 pt-10 dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="text-sm font-semibold">aitech</div>
-        <div className="mt-1 text-xs text-neutral-500">会话列表（M1）</div>
-      </aside>
-
-      <main className="flex-1 overflow-auto p-8 pt-10">
-        <h1 className="text-xl font-semibold">M0 · 工程骨架</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          主进程、预加载、渲染进程、Agent 进程和本地数据库的连通性检查。
-        </p>
-
-        <dl className="mt-6 grid max-w-xl grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm">
-          <Row label="版本" value={info?.version} />
-          <Row label="平台" value={info?.platform} />
-          <Row label="Electron" value={info?.versions.electron} />
-          <Row label="Node" value={info?.versions.node} />
-          <Row label="数据库" value={info && `schema v${info.db.schemaVersion}`} />
-          <Row label="数据目录" value={info?.db.path} mono />
-          <Row
-            label="Agent 进程"
-            value={
-              pong &&
-              (pong.ok ? `运行中 · pid ${pong.pid} · ${pong.latencyMs}ms` : `异常：${pong.error}`)
-            }
-          />
-        </dl>
+    <div className="flex h-full">
+      <Sidebar onNewChat={() => void newChat()} />
+      <main className="relative flex min-w-0 flex-1 flex-col bg-surface">
+        {view === 'chat' && <ChatView />}
+        {view === 'images' && <ImagesView />}
+        {view === 'settings' && <SettingsView />}
       </main>
+      {toast && (
+        <div
+          role="status"
+          className={clsx(
+            'fixed bottom-5 left-1/2 z-50 max-w-[80vw] -translate-x-1/2 rounded-xl px-4 py-2.5 text-sm shadow-lg',
+            toast.kind === 'error' ? 'bg-red-600 text-white' : 'bg-fg text-surface',
+          )}
+        >
+          {toast.text}
+        </div>
+      )}
     </div>
-  )
-}
-
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string
-  value?: string | null | false
-  mono?: boolean
-}) {
-  return (
-    <>
-      <dt className="text-neutral-500">{label}</dt>
-      <dd className={mono ? 'font-mono text-xs break-all' : ''}>{value || '…'}</dd>
-    </>
   )
 }

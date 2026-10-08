@@ -10,6 +10,7 @@ export {
   toModelMessages,
 } from './llm'
 export type { BlobLoader, ChatEvent, ModelRef, ProviderCredentials, StreamChatOptions } from './llm'
+export type { ModelMessage } from 'ai'
 export { isTextMime, textOf } from './messages'
 export type {
   MessagePart,

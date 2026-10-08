@@ -153,14 +153,15 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 
 ### M1 · 聊天与生图（第一个可用版本）
 
-- [ ] Provider 管理界面 + `/v1/models` 拉取 + 手动添加模型
-- [ ] `core` 适配层：anthropic / openai-responses / openai-chat 三条路径
-- [ ] 流式聊天、Markdown、代码高亮、思考过程折叠、停止 / 重新生成 / 编辑（分支）
-- [ ] 附件：图片 / PDF / 文本
-- [ ] 生图模式（generations + edits）+ 画廊
-- [ ] 会话列表、搜索、重命名、删除
-- [ ] 导出 / 导入
-- [ ] 验证：用 new-api 跑通 Claude、GPT、gpt-image-2
+- [x] Provider 管理界面 + `/v1/models` 拉取 + 手动添加模型
+- [x] `core` 适配层：anthropic / openai-responses / openai-chat 三条路径
+- [x] 流式聊天、Markdown、代码高亮、思考过程折叠、停止 / 重新生成 / 编辑（分支）
+- [x] 附件：图片 / PDF / 文本
+- [x] 生图模式（generations + edits）+ 画廊
+- [x] 会话列表、搜索、重命名、删除
+- [x] 导出 / 导入
+- [x] 验证：本地模拟网关跑通三种协议 + 生图（`pnpm --filter @aitech/core mock`）
+- [ ] 验证：用真实 new-api 跑通 Claude、GPT、gpt-image-2（需要测试 Key）
 
 ### M2 · Agent（写代码）
 
