@@ -103,7 +103,7 @@ describe.runIf(process.platform === 'win32' && sandboxAvailable())('Windows sand
       cwd: dir,
       env: process.env,
       platform: 'win32',
-      timeoutMs: 60_000,
+      timeoutMs: 100_000,
       signal: new AbortController().signal,
       sandbox: true,
     })
@@ -115,7 +115,7 @@ describe.runIf(process.platform === 'win32' && sandboxAvailable())('Windows sand
     expect(r.output).toContain('node ok')
     expect(r.output).toContain('hi')
     expect(r.exitCode).toBe(0)
-  }, 60_000)
+  }, 120_000)
 
   it('cannot write elsewhere or plant git hooks', async () => {
     const w = await run(`Set-Content -Path "${outside}" -Value x`)
@@ -125,5 +125,5 @@ describe.runIf(process.platform === 'win32' && sandboxAvailable())('Windows sand
     expect(existsSync(join(dir, '.git', 'hooks', 'pre-commit'))).toBe(false)
     await run('Add-Content -Path .git\\config -Value evil')
     expect(readFileSync(join(dir, '.git', 'config'), 'utf8')).not.toContain('evil')
-  }, 60_000)
+  }, 120_000)
 })

@@ -26,8 +26,9 @@ using System.Security.Principal;
 using System.Text;
 
 static class AitechSandbox {
-  // Fixed, so ACL entries granted once keep working across runs.
-  const string SandboxSid = "S-1-15-3-1024-2604117329-2836226339-1532462961-3436118393-1306094125-2207390431-3283318713-1848577813";
+  // Fixed, so ACL entries granted once keep working across runs. An ordinary
+  // (domain-style) SID: capability SIDs are rejected as restricting SIDs.
+  const string SandboxSid = "S-1-5-21-2604117329-2836226339-1532462961-1848577813";
 
   [StructLayout(LayoutKind.Sequential)] struct SID_AND_ATTRIBUTES { public IntPtr Sid; public uint Attributes; }
   [StructLayout(LayoutKind.Sequential)] struct TOKEN_DEFAULT_DACL { public IntPtr DefaultDacl; }
@@ -129,7 +130,7 @@ static class AitechSandbox {
     IntPtr restricted;
     // DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED
     if (!CreateRestrictedToken(token, 0x1 | 0x8, 0, IntPtr.Zero, 0, IntPtr.Zero, (uint)restrict.Length, restrict, out restricted))
-      throw new Exception("CreateRestrictedToken failed: " + Marshal.GetLastWin32Error());
+      throw new Exception("CreateRestrictedToken failed: " + new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()).Message);
 
     // Objects the command creates (pipes, events) must stay writable for it,
     // so the sandbox SID goes into the token's default DACL.
@@ -160,7 +161,7 @@ static class AitechSandbox {
     // CREATE_SUSPENDED
     if (!CreateProcessAsUser(restricted, null, cmd, IntPtr.Zero, IntPtr.Zero, true, 0x4, IntPtr.Zero,
         Environment.CurrentDirectory, ref si, out pi))
-      throw new Exception("CreateProcessAsUser failed: " + Marshal.GetLastWin32Error());
+      throw new Exception("CreateProcessAsUser failed: " + new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()).Message);
     ResumeThread(pi.hThread);
     WaitForSingleObject(pi.hProcess, 0xFFFFFFFF);
     uint code;

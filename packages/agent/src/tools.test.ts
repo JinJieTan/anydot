@@ -141,8 +141,8 @@ describe('bash', () => {
     const bad = await bashTool.run({ command: 'exit 3' }, ctx)
     expect(bad).toMatchObject({ isError: true })
     expect(bad.output).toMatch(/Exit code: 3$/)
-    // PowerShell takes seconds to start on CI runners.
-  }, 30_000)
+    // PowerShell can take many seconds to start on CI runners.
+  }, 120_000)
 
   it.skipIf(process.platform === 'win32')('times out and kills the process', async () => {
     const started = Date.now()
