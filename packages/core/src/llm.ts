@@ -40,7 +40,18 @@ export function createLanguageModel(ref: ModelRef): { model: LanguageModel; prot
 
   switch (protocol) {
     case 'anthropic':
-      return { protocol, model: createAnthropic({ baseURL, apiKey })(ref.modelId) }
+      return {
+        protocol,
+        model: createAnthropic({
+          baseURL,
+          apiKey,
+          // Required by Anthropic-compatible APIs when called from a browser (mobile web app).
+          headers:
+            'document' in globalThis
+              ? { 'anthropic-dangerous-direct-browser-access': 'true' }
+              : undefined,
+        })(ref.modelId),
+      }
     case 'openai-chat':
       return { protocol, model: createOpenAI({ baseURL, apiKey }).chat(ref.modelId) }
     case 'openai-responses':

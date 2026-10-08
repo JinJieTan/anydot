@@ -56,6 +56,11 @@ export async function startMockServer(opts: MockServerOptions = {}): Promise<Moc
 
   const server: Server = createServer(async (req, res) => {
     const path = (req.url ?? '').split('?')[0]!
+    // Browsers (the mobile web app) call the gateway directly.
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Headers', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    if (req.method === 'OPTIONS') return void res.writeHead(204).end()
     const key =
       req.headers['x-api-key'] ?? req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? ''
     if (key !== apiKey) return json(res, 401, { error: { message: 'invalid api key' } })

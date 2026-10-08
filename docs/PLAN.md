@@ -53,7 +53,7 @@ aitech/
 │  ├─ db/               SQLite schema、迁移、数据访问（桌面端用）
 │  ├─ protocol/         relay 消息格式、配对、加解密；PROTOCOL.md
 │  └─ ui/               共享组件：消息流、Markdown、代码高亮、图片画廊、审批卡片
-├─ server/relay/        Go 单二进制 + Dockerfile
+├─ apps/relay/          Node 中继（打包为单个 server.mjs）+ Dockerfile
 └─ docs/
 ```
 
@@ -177,11 +177,13 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 
 ### M3 · Relay 与手机端
 
-- [ ] `protocol` 包 + `PROTOCOL.md`
-- [ ] Go relay：鉴权、转发、三种准入模式、Web Push、Docker 镜像
-- [ ] 桌面端：设备密钥、配对二维码、信任列表、远程控制标识、急停
-- [ ] 手机 PWA：扫码配对、直连聊天 / 生图、远程浏览会话、派任务、审批、推送
-- [ ] 新设备迁移（从老设备拉取历史）
+- [x] `@aitech/protocol`：设备身份（Ed25519）、端到端加密（X25519 + XChaCha20-Poly1305，收发双方绑定在 AAD）、防重放、配对链接
+- [x] Relay（Node，单文件）：签名登录、密文转发、在线状态、三种准入模式、限流、Web Push、托管手机网页、Docker 镜像（见 docs/DEPLOY.md）
+- [x] 桌面端：设备身份（钥匙串加密）、配对二维码、电脑上二次确认、信任列表与解除配对、远程控制提示条与一键断开
+- [x] 手机 PWA：扫码配对、电脑列表 / 项目 / 对话、远程派任务、实时进度、审批、停止；直连服务商对话与生图；加密推送通知
+- [x] 手机发起的任务不会以“全自动”模式运行
+- [ ] 新设备迁移（从老设备拉取历史）—— 推迟到同步功能一起做
+- [ ] 真机验证：iOS 添加到主屏幕后的推送、Android Chrome
 
 ### M4 · 增强
 
