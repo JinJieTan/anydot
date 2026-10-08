@@ -7,6 +7,7 @@ export {
   defineTools,
   errorMessage,
   nativeComputerTool,
+  nativeWebSearchTool,
   streamChat,
   summaryPrompt,
   thinkingOptions,

@@ -16,6 +16,10 @@ export interface MockReply {
   text?: string
   reasoning?: string
   toolCalls?: { name: string; input: unknown }[]
+  /** Anthropic only: a server-side web search the provider "ran", before the text. */
+  serverSearch?: { query: string; results: { url: string; title: string }[] }
+  /** Anthropic only: override stop_reason (e.g. "pause_turn"). */
+  stopReason?: string
 }
 
 export interface MockRequestInfo {
@@ -260,6 +264,41 @@ function streamAnthropic(res: ServerResponse, model: string, r: MockReply) {
     send('content_block_stop', { type: 'content_block_stop', index })
     index++
   }
+  if (r.serverSearch) {
+    const id = `srvtoolu_${++callSeq}`
+    send('content_block_start', {
+      type: 'content_block_start',
+      index,
+      content_block: { type: 'server_tool_use', id, name: 'web_search', input: {} },
+    })
+    send('content_block_delta', {
+      type: 'content_block_delta',
+      index,
+      delta: {
+        type: 'input_json_delta',
+        partial_json: JSON.stringify({ query: r.serverSearch.query }),
+      },
+    })
+    send('content_block_stop', { type: 'content_block_stop', index })
+    index++
+    send('content_block_start', {
+      type: 'content_block_start',
+      index,
+      content_block: {
+        type: 'web_search_tool_result',
+        tool_use_id: id,
+        content: r.serverSearch.results.map((x) => ({
+          type: 'web_search_result',
+          url: x.url,
+          title: x.title,
+          encrypted_content: 'enc',
+          page_age: null,
+        })),
+      },
+    })
+    send('content_block_stop', { type: 'content_block_stop', index })
+    index++
+  }
   if (r.text) {
     send('content_block_start', {
       type: 'content_block_start',
@@ -291,7 +330,10 @@ function streamAnthropic(res: ServerResponse, model: string, r: MockReply) {
   }
   send('message_delta', {
     type: 'message_delta',
-    delta: { stop_reason: r.toolCalls?.length ? 'tool_use' : 'end_turn', stop_sequence: null },
+    delta: {
+      stop_reason: r.stopReason ?? (r.toolCalls?.length ? 'tool_use' : 'end_turn'),
+      stop_sequence: null,
+    },
     usage: { output_tokens: 7 },
   })
   send('message_stop', { type: 'message_stop' })

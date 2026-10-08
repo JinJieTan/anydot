@@ -80,6 +80,26 @@ export interface RunAgentResult {
   steps: number
 }
 
+/** Readable text for a provider-run tool's result (search results etc.), for display. */
+export function describeServerOutput(output: unknown): string {
+  if (typeof output === 'string') return output
+  // Anthropic web search: [{ url, title, pageAge, encryptedContent }]
+  if (Array.isArray(output) && output.every((r) => r && typeof r === 'object' && 'url' in r)) {
+    return output
+      .map(
+        (r: { url: string; title?: string | null }, i) =>
+          `${i + 1}. ${r.title ?? r.url}\n   ${r.url}`,
+      )
+      .join('\n')
+  }
+  const json = JSON.stringify(
+    output,
+    (k, v: unknown) => (k === 'encryptedContent' ? undefined : v),
+    2,
+  )
+  return json && json.length > 4000 ? `${json.slice(0, 4000)}…` : (json ?? '')
+}
+
 /** Screenshots are large; only the latest few stay in the context. */
 const KEEP_IMAGES = 3
 
@@ -137,6 +157,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     let text = ''
     let reasoning = ''
     const calls: { id: string; name: string; input: unknown }[] = []
+    // Run by the provider (native web search): shown and stored, never executed here.
+    const serverCalls: { id: string; name: string; input: unknown }[] = []
+    const serverResults: { id: string; name: string; output: unknown; isError: boolean }[] = []
     let usage: Usage | null = null
     let finishReason: string | null = null
     let error: string | undefined
@@ -164,6 +187,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         case 'tool-call':
           calls.push({ id: e.id, name: e.name, input: e.input })
           break
+        case 'server-tool-call':
+          serverCalls.push({ id: e.id, name: e.name, input: e.input })
+          break
+        case 'server-tool-result':
+          serverResults.push(e)
+          break
         case 'finish':
           usage = e.usage
           finishReason = e.finishReason
@@ -179,10 +208,25 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
     const parts: MessagePart[] = [
       ...(reasoning ? [{ type: 'reasoning' as const, text: reasoning }] : []),
+      ...serverCalls.map((c) => ({
+        type: 'tool_call' as const,
+        id: c.id,
+        name: c.name,
+        input: c.input,
+        server: true,
+      })),
       ...(text ? [{ type: 'text' as const, text }] : []),
       ...calls.map((c) => ({ type: 'tool_call' as const, id: c.id, name: c.name, input: c.input })),
     ]
     onEvent({ type: 'step-end', parts, usage, finishReason, error })
+    for (const r of serverResults)
+      onEvent({
+        type: 'tool-result',
+        toolCallId: r.id,
+        name: r.name,
+        output: describeServerOutput(r.output),
+        isError: r.isError,
+      })
 
     if (error) return { status: 'error', error, steps: step }
     if (ctx.signal.aborted) {
@@ -197,7 +241,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         })
       return { status: 'aborted', steps: step }
     }
-    if (!calls.length) return { status: 'done', steps: step }
+    if (!calls.length) {
+      // A long server-tool turn was paused: send it back as-is to let it continue.
+      if (finishReason === 'pause_turn' && response) {
+        history.push(...(response as ModelMessage[]))
+        continue
+      }
+      return { status: 'done', steps: step }
+    }
 
     // Prefer the SDK's own replay of the turn: it carries signed thinking blocks
     // that Anthropic requires when continuing a tool loop.

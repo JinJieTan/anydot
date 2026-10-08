@@ -23,7 +23,13 @@ import {
   toolsForMode,
   type ApprovalDecision,
 } from '@aitech/agent'
-import { newId, nativeComputerTool, type ModelMessage, type ModelRef } from '@aitech/core'
+import {
+  newId,
+  nativeComputerTool,
+  nativeWebSearchTool,
+  type ModelMessage,
+  type ModelRef,
+} from '@aitech/core'
 import type { AgentRequest, AgentResponse, AgentRunRequest } from '../shared/ipc'
 
 // Resolve once, in the background; the first command waits for it if needed.
@@ -71,6 +77,17 @@ function getComputer(): Computer | null {
   return computer
 }
 
+/** On the official APIs, web_search becomes the provider's own (server-side) search. */
+function withNativeSearch(tools: typeof ALL_TOOLS, model: ModelRef): typeof ALL_TOOLS {
+  const native = nativeWebSearchTool(model)
+  if (!native) return tools
+  return tools.map((t) =>
+    t.definition.name === 'web_search'
+      ? { ...t, definition: { ...t.definition, provider: native } }
+      : t,
+  )
+}
+
 /** The computer tool, provider-native when the model and endpoint support it. */
 async function buildComputerTool(model: ModelRef) {
   const pc = getComputer()
@@ -109,7 +126,7 @@ async function start(runId: string, req: AgentRunRequest) {
       const pcTool = a.computer ? await buildComputerTool(model) : null
       tools = toolsForMode(
         [
-          ...ALL_TOOLS,
+          ...withNativeSearch(ALL_TOOLS, model),
           ...(a.browser ? BROWSER_TOOLS : []),
           ...(pcTool
             ? [pcTool, computerDisplayTool].map((t) => t as unknown as (typeof ALL_TOOLS)[number])

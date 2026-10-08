@@ -7,7 +7,8 @@ export type MessagePart =
   | { type: 'reasoning'; text: string }
   | { type: 'image'; blob: string; mime: string; name?: string }
   | { type: 'file'; blob: string; mime: string; name: string }
-  | { type: 'tool_call'; id: string; name: string; input: unknown }
+  /** `server`: run by the provider (e.g. native web search); shown, never replayed. */
+  | { type: 'tool_call'; id: string; name: string; input: unknown; server?: boolean }
   | {
       type: 'tool_result'
       id: string

@@ -5,6 +5,7 @@ import { createVideo, downloadVideo, waitForVideo } from './videos'
 import {
   defineTools,
   nativeComputerTool,
+  nativeWebSearchTool,
   withCacheBreakpoints,
   streamChat,
   toModelMessages,
@@ -149,6 +150,19 @@ describe('prompt caching', () => {
     )
     expect(claude).toMatch(/"text":"hi","cache_control":\{"type":"ephemeral"\}/)
     expect(gpt).not.toMatch(/cache_control/)
+  })
+})
+
+describe('nativeWebSearchTool', () => {
+  const at = (baseUrl: string, modelId: string, type: 'anthropic' | 'openai' = 'anthropic') => ({
+    provider: { baseUrl, apiKey: 'k', type },
+    modelId,
+  })
+  it('is only used on the official APIs', () => {
+    expect(nativeWebSearchTool(at('https://api.anthropic.com', 'claude-opus-5-5'))).not.toBeNull()
+    expect(nativeWebSearchTool(at('https://api.openai.com/v1', 'gpt-5', 'openai'))).not.toBeNull()
+    expect(nativeWebSearchTool(at('https://relay.example/v1', 'claude-opus-5-5'))).toBeNull()
+    expect(nativeWebSearchTool(at('https://relay.example/v1', 'gpt-5', 'openai'))).toBeNull()
   })
 })
 
@@ -404,6 +418,23 @@ describe('toModelMessages', () => {
       ],
     })
     expect(loaded.sort()).toEqual(['e', 'f', 'g'])
+  })
+
+  it('never replays provider-run tool calls', async () => {
+    const out = await toModelMessages(
+      [
+        msg('user', [{ type: 'text', text: 'search' }]),
+        msg('assistant', [
+          { type: 'tool_call', id: 's1', name: 'web_search', input: { query: 'q' }, server: true },
+          { type: 'text', text: 'found it' },
+        ]),
+        msg('tool', [{ type: 'tool_result', id: 's1', name: 'web_search', output: '1. x' }]),
+        msg('user', [{ type: 'text', text: 'thanks' }]),
+      ],
+      async () => new Uint8Array(),
+    )
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+    expect(out[1]).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'found it' }] })
   })
 
   it('merges consecutive tool messages and patches interrupted calls', async () => {

@@ -1,7 +1,7 @@
 import { anthropic as anthropicProvider, createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI, openai as openaiProvider } from '@ai-sdk/openai'
 
 const anthropicTools = anthropicProvider.tools
-import { createOpenAI } from '@ai-sdk/openai'
 import {
   APICallError,
   jsonSchema,
@@ -232,7 +232,7 @@ export async function toModelMessages(
       const content: Exclude<AssistantContent, string> = []
       for (const part of msg.parts) {
         if (part.type === 'text' && part.text) content.push({ type: 'text', text: part.text })
-        else if (part.type === 'tool_call') {
+        else if (part.type === 'tool_call' && !part.server) {
           content.push({
             type: 'tool-call',
             toolCallId: part.id,
@@ -338,6 +338,9 @@ export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'tool-call'; id: string; name: string; input: unknown }
+  /** A tool the provider ran itself (e.g. native web search); nothing to execute. */
+  | { type: 'server-tool-call'; id: string; name: string; input: unknown }
+  | { type: 'server-tool-result'; id: string; name: string; output: unknown; isError: boolean }
   | { type: 'finish'; usage: Usage; finishReason: string }
   /** The assistant message(s) exactly as the SDK would replay them, incl. signed thinking blocks. */
   | { type: 'response'; messages: ModelMessage[] }
@@ -395,7 +398,32 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
           if (part.text) yield { type: 'reasoning', text: part.text }
           break
         case 'tool-call':
-          yield { type: 'tool-call', id: part.toolCallId, name: part.toolName, input: part.input }
+          yield {
+            type: part.providerExecuted ? 'server-tool-call' : 'tool-call',
+            id: part.toolCallId,
+            name: part.toolName,
+            input: part.input,
+          }
+          break
+        case 'tool-result':
+          if (part.providerExecuted)
+            yield {
+              type: 'server-tool-result',
+              id: part.toolCallId,
+              name: part.toolName,
+              output: part.output,
+              isError: false,
+            }
+          break
+        case 'tool-error':
+          if (part.providerExecuted)
+            yield {
+              type: 'server-tool-result',
+              id: part.toolCallId,
+              name: part.toolName,
+              output: errorMessage(part.error),
+              isError: true,
+            }
           break
         case 'error':
           yield { type: 'error', message: errorMessage(part.error) }
@@ -403,7 +431,8 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
         case 'finish':
           yield {
             type: 'finish',
-            finishReason: part.finishReason,
+            // Anthropic pauses long server-tool turns; the client must send the turn back to continue.
+            finishReason: part.rawFinishReason === 'pause_turn' ? 'pause_turn' : part.finishReason,
             usage: {
               inputTokens: part.totalUsage.inputTokens,
               outputTokens: part.totalUsage.outputTokens,
@@ -456,6 +485,26 @@ export function withCacheBreakpoints(
     messages: out,
     system: system ? { role: 'system', content: system, providerOptions: CACHE } : undefined,
   }
+}
+
+/**
+ * The provider's own web search (run on their side, better results), used on
+ * the official Anthropic and OpenAI APIs. Gateways often don't support
+ * server tools, so they get the app's own web_search function instead.
+ */
+export function nativeWebSearchTool(ref: ModelRef): Tool | null {
+  const protocol = resolveProtocol(ref.modelId, ref.provider.type, ref.protocol ?? undefined)
+  let host: string
+  try {
+    host = new URL(ref.provider.baseUrl).hostname
+  } catch {
+    return null
+  }
+  if (protocol === 'anthropic' && host === 'api.anthropic.com')
+    return anthropicTools.webSearch_20250305({ maxUses: 5 })
+  if (protocol === 'openai-responses' && host === 'api.openai.com')
+    return openaiProvider.tools.webSearch({})
+  return null
 }
 
 /** Turn SDK / HTTP errors into something a user can act on. */
