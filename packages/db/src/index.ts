@@ -52,4 +52,5 @@ export type {
   PermissionMode,
   ProjectRow,
   ProviderRow,
+  TrustedDeviceRow,
 } from './store'

@@ -1,0 +1,24 @@
+{
+  "name": "@aitech/relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "aitech relay: pairs phones with desktops and forwards end-to-end encrypted messages",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/server.mjs",
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aitech/protocol": "workspace:*",
+    "web-push": "3.6.7",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.25.12"
+  }
+}

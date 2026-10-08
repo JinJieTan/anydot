@@ -83,6 +83,41 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultThinking: 'off',
 }
 
+export interface RemoteDeviceDTO {
+  deviceId: string
+  name: string
+  platform: string | null
+  pairedAt: number
+  lastSeen: number | null
+  online: boolean
+}
+
+export type RemoteState =
+  'disabled' | 'connecting' | 'online' | 'offline' | 'unauthorized' | 'error'
+
+export interface RemoteStatusDTO {
+  enabled: boolean
+  relayUrl: string | null
+  state: RemoteState
+  detail?: string
+  authMode?: 'open' | 'token' | 'upstream'
+  hasToken: boolean
+  /** Provider whose Base URL + Key authenticate to an "upstream" relay. */
+  providerId: string | null
+  deviceId: string
+  deviceName: string
+  devices: RemoteDeviceDTO[]
+  pairing: { link: string; code: string; expiresAt: number } | null
+  /** Phones that sent something in the last few minutes. */
+  activeDevices: string[]
+}
+
+export interface PairRequestDTO {
+  requestId: string
+  name: string
+  platform: string
+}
+
 export interface ConversationDetail {
   conversation: ConversationDTO
   messages: MessageDTO[]
@@ -197,6 +232,20 @@ export interface Rpc {
   }) => void
   'chat.approvals': () => ApprovalDTO[]
 
+  'remote.status': () => RemoteStatusDTO
+  'remote.configure': (input: {
+    enabled?: boolean
+    relayUrl?: string | null
+    token?: string | null
+    providerId?: string | null
+  }) => RemoteStatusDTO
+  /** Look for a relay next to the configured providers ({base}/ctl/info). */
+  'remote.detect': () => { relayUrl: string; auth: string } | null
+  'remote.pair': () => { link: string; code: string; expiresAt: number }
+  'remote.pairCancel': () => void
+  'remote.pairRespond': (input: { requestId: string; accept: boolean }) => void
+  'remote.revoke': (deviceId: string) => void
+
   /** Open model-generated HTML in an isolated preview window. */
   'preview.html': (html: string) => void
 
@@ -214,49 +263,62 @@ export interface Rpc {
 
 export type RpcMethod = keyof Rpc
 
-export const RPC_METHODS: readonly RpcMethod[] = [
-  'app.info',
-  'settings.get',
-  'settings.set',
-  'providers.list',
-  'providers.create',
-  'providers.update',
-  'providers.delete',
-  'providers.test',
-  'providers.syncModels',
-  'models.list',
-  'models.available',
-  'models.add',
-  'models.update',
-  'models.delete',
-  'projects.list',
-  'projects.create',
-  'projects.update',
-  'projects.delete',
-  'projects.reveal',
-  'conversations.list',
-  'conversations.get',
-  'conversations.create',
-  'conversations.update',
-  'conversations.delete',
-  'chat.send',
-  'chat.regenerate',
-  'chat.edit',
-  'chat.stop',
-  'chat.switchBranch',
-  'chat.running',
-  'chat.approve',
-  'chat.approvals',
-  'preview.html',
-  'blobs.put',
-  'blobs.saveAs',
-  'blobs.copyImage',
-  'images.list',
-  'images.generate',
-  'images.delete',
-  'data.export',
-  'data.import',
-]
+/**
+ * Allowlist of callable methods. Typed as a record over every Rpc key, so
+ * adding a method to Rpc without listing it here fails to compile.
+ */
+const RPC_ALLOWLIST: Record<RpcMethod, true> = {
+  'app.info': true,
+  'settings.get': true,
+  'settings.set': true,
+  'providers.list': true,
+  'providers.create': true,
+  'providers.update': true,
+  'providers.delete': true,
+  'providers.test': true,
+  'providers.syncModels': true,
+  'models.list': true,
+  'models.available': true,
+  'models.add': true,
+  'models.update': true,
+  'models.delete': true,
+  'projects.list': true,
+  'projects.create': true,
+  'projects.update': true,
+  'projects.delete': true,
+  'projects.reveal': true,
+  'conversations.list': true,
+  'conversations.get': true,
+  'conversations.create': true,
+  'conversations.update': true,
+  'conversations.delete': true,
+  'chat.send': true,
+  'chat.regenerate': true,
+  'chat.edit': true,
+  'chat.stop': true,
+  'chat.switchBranch': true,
+  'chat.running': true,
+  'chat.approve': true,
+  'chat.approvals': true,
+  'remote.status': true,
+  'remote.configure': true,
+  'remote.detect': true,
+  'remote.pair': true,
+  'remote.pairCancel': true,
+  'remote.pairRespond': true,
+  'remote.revoke': true,
+  'preview.html': true,
+  'blobs.put': true,
+  'blobs.saveAs': true,
+  'blobs.copyImage': true,
+  'images.list': true,
+  'images.generate': true,
+  'images.delete': true,
+  'data.export': true,
+  'data.import': true,
+}
+
+export const RPC_METHODS = Object.keys(RPC_ALLOWLIST) as RpcMethod[]
 
 /** Main → renderer push events. */
 export type ChatStreamEvent =
@@ -273,6 +335,8 @@ export interface Events {
   chat: ChatStreamEvent
   image: ImageJobDTO
   /** Something changed outside the current view (import, provider edits). */
+  remote: RemoteStatusDTO
+  'remote-pair': PairRequestDTO
   invalidate: { scope: 'conversations' | 'providers' | 'models' | 'images' | 'projects' | 'all' }
 }
 

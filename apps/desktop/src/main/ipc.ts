@@ -28,6 +28,7 @@ import { exportData, importData } from './data-transfer'
 import { openPreview } from './preview'
 import { emit } from './events'
 import type { ImageService } from './image-service'
+import type { RemoteService } from './remote-service'
 import { decryptKey, encryptKey, keyHint, keyStorageKind } from './secrets'
 
 interface Deps {
@@ -35,6 +36,7 @@ interface Deps {
   blobs: BlobStore
   chat: ChatService
   images: ImageService
+  remote: RemoteService
   dbPath: string
 }
 
@@ -100,7 +102,7 @@ function typedHandle<K extends RpcMethod>(
   })
 }
 
-export function registerIpc({ store, blobs, chat, images, dbPath }: Deps): void {
+export function registerIpc({ store, blobs, chat, images, remote, dbPath }: Deps): void {
   const getSettings = () => loadSettings(store)
 
   const handlers: { [K in RpcMethod]: (...args: Parameters<Rpc[K]>) => unknown } = {
@@ -276,6 +278,14 @@ export function registerIpc({ store, blobs, chat, images, dbPath }: Deps): void 
     'chat.approve': ({ conversationId, toolCallId, decision }) =>
       chat.approve(conversationId, toolCallId, decision),
     'chat.approvals': () => chat.pendingApprovals(),
+
+    'remote.status': () => remote.status(),
+    'remote.configure': (input) => remote.configure(input),
+    'remote.detect': () => remote.detect(),
+    'remote.pair': () => remote.createPairing(),
+    'remote.pairCancel': () => remote.cancelPairing(),
+    'remote.pairRespond': ({ requestId, accept }) => remote.respondPair(requestId, accept),
+    'remote.revoke': (deviceId) => remote.revoke(deviceId),
 
     'preview.html': (html) => openPreview(html),
 

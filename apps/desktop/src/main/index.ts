@@ -10,6 +10,7 @@ import { ChatService } from './chat-service'
 import { emit } from './events'
 import { ImageService } from './image-service'
 import { loadSettings, registerIpc } from './ipc'
+import { RemoteService } from './remote-service'
 
 /** Serves local blobs to the renderer as aitech-blob://blob/<sha256>. */
 const BLOB_SCHEME = 'aitech-blob'
@@ -25,6 +26,7 @@ const agent = new AgentHost()
 let store: Store | null = null
 let chat: ChatService | null = null
 let images: ImageService | null = null
+let remote: RemoteService | null = null
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -123,11 +125,22 @@ if (!app.requestSingleInstanceLock()) {
       blobs,
       agent,
       () => loadSettings(s),
-      (e) => emit('chat', e),
+      (e) => {
+        emit('chat', e)
+        remote?.onChatEvent(e)
+      },
     )
     images = new ImageService(s, blobs, (job) => emit('image', job))
-    registerIpc({ store: s, blobs, chat, images, dbPath: opened.dbPath })
+    remote = new RemoteService(
+      s,
+      chat,
+      blobs,
+      (status) => emit('remote', status),
+      (req) => emit('remote-pair', req),
+    )
+    registerIpc({ store: s, blobs, chat, images, remote, dbPath: opened.dbPath })
     createWindow()
+    void remote.restart()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -141,6 +154,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     chat?.stopAll()
     images?.stopAll()
+    remote?.stop()
     agent.stop()
     store?.db.close()
   })

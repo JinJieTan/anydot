@@ -199,3 +199,14 @@ describe('transaction', () => {
     expect(store.listConversations()).toHaveLength(0)
   })
 })
+
+describe('trusted devices', () => {
+  it('trusts, re-pairs and revokes', () => {
+    store.trustDevice({ deviceId: 'd1', name: 'iPhone', platform: 'ios', publicKey: 'k1' })
+    expect(store.listTrustedDevices().map((d) => d.name)).toEqual(['iPhone'])
+    store.revokeDevice('d1')
+    expect(store.getTrustedDevice('d1')).toBeUndefined()
+    store.trustDevice({ deviceId: 'd1', name: 'iPhone 2', platform: 'ios', publicKey: 'k1' })
+    expect(store.getTrustedDevice('d1')?.name).toBe('iPhone 2')
+  })
+})

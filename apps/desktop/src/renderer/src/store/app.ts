@@ -2,8 +2,10 @@ import { create } from 'zustand'
 import type {
   ConversationDTO,
   ModelDTO,
+  PairRequestDTO,
   ProjectDTO,
   ProviderDTO,
+  RemoteStatusDTO,
   Settings,
 } from '../../../shared/ipc'
 import { DEFAULT_SETTINGS } from '../../../shared/ipc'
@@ -19,6 +21,8 @@ interface AppState {
   providers: ProviderDTO[]
   models: ModelDTO[]
   projects: ProjectDTO[]
+  remote: RemoteStatusDTO | null
+  pairRequests: PairRequestDTO[]
   settings: Settings
   running: Set<string>
   toast: { id: number; text: string; kind: 'info' | 'error' } | null
@@ -49,6 +53,8 @@ export const useApp = create<AppState>((set, get) => ({
   providers: [],
   models: [],
   projects: [],
+  remote: null,
+  pairRequests: [],
   settings: DEFAULT_SETTINGS,
   running: new Set(),
   toast: null,

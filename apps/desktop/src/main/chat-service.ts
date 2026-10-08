@@ -20,6 +20,9 @@ import { decryptKey } from './secrets'
 
 const TITLE_MAX = 40
 
+/** Where a request came from; remote (phone) requests get stricter defaults. */
+export type Origin = 'local' | 'remote'
+
 interface ActiveRun {
   handle: RunHandle | null
   aborted: boolean
@@ -53,7 +56,12 @@ export class ChatService {
     return [...this.runs.values()].flatMap((r) => [...r.approvals.values()])
   }
 
-  send(conversationId: string, text: string, attachments: Attachment[]): void {
+  send(
+    conversationId: string,
+    text: string,
+    attachments: Attachment[],
+    origin: Origin = 'local',
+  ): void {
     const conv = this.requireIdle(conversationId)
     const parts = userParts(text, attachments)
     if (!parts.length) throw new Error('消息不能为空')
@@ -74,7 +82,7 @@ export class ChatService {
         conversation: this.store.updateConversation(conversationId, { title }),
       })
     }
-    this.reply(conversationId, user)
+    this.reply(conversationId, user, origin)
   }
 
   regenerate(conversationId: string, userMessageId: string): void {
@@ -177,7 +185,7 @@ export class ChatService {
     return creds ? { provider: creds.provider, modelId: creds.model.modelId } : undefined
   }
 
-  private reply(conversationId: string, user: MessageRow): void {
+  private reply(conversationId: string, user: MessageRow, origin: Origin = 'local'): void {
     const conv = this.ensureModel(this.store.getConversation(conversationId)!)
     const creds = this.credentials(conv.modelId!)
     const project = conv.projectId ? this.store.getProject(conv.projectId) : undefined
@@ -253,7 +261,11 @@ export class ChatService {
           system: project ? undefined : (conv.systemPrompt ?? undefined),
           agent: project && {
             cwd: project.rootPath,
-            mode: project.permissionMode,
+            // Tasks started from a phone never run fully unattended: commands still need a tap.
+            mode:
+              origin === 'remote' && project.permissionMode === 'auto'
+                ? 'auto-edit'
+                : project.permissionMode,
             projectName: project.name,
             projectInstructions: project.instructions,
             userSystemPrompt: conv.systemPrompt,

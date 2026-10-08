@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useCallback, useEffect } from 'react'
+import { PairRequestDialog, RemoteBanner } from './components/Remote'
 import { Sidebar } from './components/Sidebar'
 import { invoke, api } from './lib/api'
 import { attempt, useApp } from './store/app'
@@ -23,6 +24,11 @@ export function App() {
       ids.forEach((id) => useApp.getState().setRunning(id, true)),
     )
 
+    void invoke('remote.status').then((remote) => useApp.setState({ remote }))
+    const offRemote = api.on('remote', (remote) => useApp.setState({ remote }))
+    const offPair = api.on('remote-pair', (req) =>
+      useApp.setState((s) => ({ pairRequests: [...s.pairRequests, req] })),
+    )
     const offChat = api.on('chat', (e) => useChat.getState().apply(e))
     const offInvalidate = api.on('invalidate', ({ scope }) => {
       const app = useApp.getState()
@@ -34,6 +40,8 @@ export function App() {
     return () => {
       offChat()
       offInvalidate()
+      offRemote()
+      offPair()
     }
   }, [loadConversations, loadModels, loadProviders, loadProjects, loadSettings])
 
@@ -78,10 +86,12 @@ export function App() {
         onNewProject={() => void newProject()}
       />
       <main className="relative flex min-w-0 flex-1 flex-col bg-surface">
+        <RemoteBanner />
         {view === 'chat' && <ChatView />}
         {view === 'images' && <ImagesView />}
         {view === 'settings' && <SettingsView />}
       </main>
+      <PairRequestDialog />
       {toast && (
         <div
           role="status"

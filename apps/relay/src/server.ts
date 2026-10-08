@@ -1,0 +1,353 @@
+import { randomBytes } from 'node:crypto'
+import { readFile, stat } from 'node:fs/promises'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { extname, join, normalize, resolve, sep } from 'node:path'
+import {
+  authMessage,
+  deviceIdOf,
+  fromB64url,
+  MAX_FRAME_BYTES,
+  verify,
+  type ClientFrame,
+  type DeviceKind,
+  type RelayInfo,
+  type ServerFrame,
+} from '@aitech/protocol'
+import { WebSocketServer, type WebSocket } from 'ws'
+import { admit } from './auth'
+import type { RelayConfig } from './config'
+import { PushService } from './push'
+
+export const VERSION = '0.1.0'
+
+interface Conn {
+  ws: WebSocket
+  ip: string
+  deviceId: string | null
+  publicKey: string | null
+  kind: DeviceKind | null
+  tokens: number
+  lastRefill: number
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+}
+
+export interface RelayServer {
+  url: string
+  server: Server
+  close: () => Promise<void>
+  /** For tests and metrics. */
+  online: () => number
+}
+
+export async function startRelay(
+  config: RelayConfig,
+  opts: { fetch?: typeof fetch; log?: (...a: unknown[]) => void } = {},
+): Promise<RelayServer> {
+  const log = opts.log ?? ((...a: unknown[]) => console.log(new Date().toISOString(), ...a))
+  let push: PushService | null = null
+  try {
+    push = new PushService(config.dataDir, config.vapidSubject)
+  } catch (err) {
+    log('web push disabled:', (err as Error).message)
+  }
+
+  const devices = new Map<string, Set<Conn>>()
+  const perIp = new Map<string, number>()
+
+  const info = (): RelayInfo => ({
+    name: 'aitech-relay',
+    version: VERSION,
+    auth: config.auth,
+    vapidPublicKey: push?.publicKey,
+    mobileUrl:
+      config.mobileDir && config.publicUrl
+        ? `${config.publicUrl.replace(/\/+$/, '')}/m/`
+        : undefined,
+  })
+
+  const server = createServer((req, res) => void handleHttp(req, res))
+
+  async function handleHttp(req: IncomingMessage, res: ServerResponse) {
+    const url = new URL(req.url ?? '/', 'http://relay')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Headers', '*')
+      res.writeHead(204).end()
+      return
+    }
+    if (url.pathname === '/info') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify(info()))
+      return
+    }
+    if (url.pathname === '/healthz') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok')
+      return
+    }
+    if (config.mobileDir && (url.pathname === '/m' || url.pathname.startsWith('/m/'))) {
+      await serveStatic(config.mobileDir, url.pathname.slice(2) || '/', res)
+      return
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found')
+  }
+
+  async function serveStatic(root: string, path: string, res: ServerResponse) {
+    const base = resolve(root)
+    let file = normalize(join(base, decodeURIComponent(path)))
+    if (file !== base && !file.startsWith(base + sep)) {
+      res.writeHead(403).end()
+      return
+    }
+    let info = await stat(file).catch(() => null)
+    if (info?.isDirectory()) {
+      file = join(file, 'index.html')
+      info = await stat(file).catch(() => null)
+    }
+    // SPA fallback: unknown paths get index.html.
+    if (!info) {
+      file = join(base, 'index.html')
+      info = await stat(file).catch(() => null)
+      if (!info) {
+        res.writeHead(404).end('mobile app not built')
+        return
+      }
+    }
+    const ext = extname(file)
+    const immutable = file.includes(`${sep}assets${sep}`)
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] ?? 'application/octet-stream',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      ...(file.endsWith('sw.js') ? { 'Service-Worker-Allowed': '/m/' } : {}),
+    })
+    res.end(await readFile(file))
+  }
+
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
+
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url ?? '/', 'http://relay')
+    if (url.pathname !== '/ws') {
+      socket.destroy()
+      return
+    }
+    const ip = clientIp(req)
+    if ((perIp.get(ip) ?? 0) >= config.maxConnectionsPerIp) {
+      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, ip))
+  })
+
+  function clientIp(req: IncomingMessage): string {
+    // Behind nginx: trust the first X-Forwarded-For hop only from loopback.
+    const remote = req.socket.remoteAddress ?? ''
+    const fwd = req.headers['x-forwarded-for']
+    if (fwd && (remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1')) {
+      return String(fwd).split(',')[0]!.trim()
+    }
+    return remote
+  }
+
+  function send(ws: WebSocket, frame: ServerFrame) {
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(frame))
+  }
+
+  function onConnection(ws: WebSocket, ip: string) {
+    perIp.set(ip, (perIp.get(ip) ?? 0) + 1)
+    const conn: Conn = {
+      ws,
+      ip,
+      deviceId: null,
+      publicKey: null,
+      kind: null,
+      tokens: config.messageRate * 2,
+      lastRefill: Date.now(),
+    }
+    const nonce = randomBytes(24).toString('base64url')
+    send(ws, { t: 'challenge', nonce, info: info() })
+
+    // Unauthenticated sockets must log in promptly.
+    const loginTimer = setTimeout(() => {
+      if (!conn.deviceId) ws.close(4401, 'login timeout')
+    }, 15_000)
+
+    let alive = true
+    ws.on('pong', () => (alive = true))
+    const ping = setInterval(() => {
+      if (!alive) return ws.terminate()
+      alive = false
+      ws.ping()
+    }, 30_000)
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return ws.close(4400, 'text frames only')
+      // Token bucket per connection.
+      const now = Date.now()
+      conn.tokens = Math.min(
+        config.messageRate * 2,
+        conn.tokens + ((now - conn.lastRefill) / 1000) * config.messageRate,
+      )
+      conn.lastRefill = now
+      if (conn.tokens < 1) {
+        send(ws, { t: 'error', code: 'rate_limited', message: 'too many messages' })
+        return
+      }
+      conn.tokens--
+
+      let frame: ClientFrame
+      try {
+        frame = JSON.parse(data.toString()) as ClientFrame
+      } catch {
+        return send(ws, { t: 'error', code: 'bad_frame', message: 'invalid JSON' })
+      }
+      void onFrame(conn, frame, nonce).catch((err) => log('frame error', err))
+    })
+
+    ws.on('close', () => {
+      clearTimeout(loginTimer)
+      clearInterval(ping)
+      const n = (perIp.get(ip) ?? 1) - 1
+      if (n <= 0) perIp.delete(ip)
+      else perIp.set(ip, n)
+      if (conn.deviceId) {
+        const set = devices.get(conn.deviceId)
+        set?.delete(conn)
+        if (set && !set.size) devices.delete(conn.deviceId)
+      }
+    })
+  }
+
+  async function onFrame(conn: Conn, f: ClientFrame, nonce: string) {
+    const { ws } = conn
+    if (f.t === 'ping') return send(ws, { t: 'pong' })
+
+    if (f.t === 'hello') {
+      if (conn.deviceId) return
+      let key: Uint8Array
+      try {
+        key = fromB64url(f.publicKey)
+      } catch {
+        return ws.close(4400, 'bad key')
+      }
+      if (
+        key.length !== 32 ||
+        deviceIdOf(key) !== f.deviceId ||
+        !verify(key, authMessage(nonce), f.signature)
+      ) {
+        send(ws, { t: 'error', code: 'unauthorized', message: '设备签名无效' })
+        return ws.close(4401, 'bad signature')
+      }
+      const denied = await admit(config, f.auth, opts.fetch)
+      if (denied) {
+        send(ws, { t: 'error', code: 'unauthorized', message: denied })
+        return ws.close(4403, 'not admitted')
+      }
+      conn.deviceId = f.deviceId
+      conn.publicKey = f.publicKey
+      conn.kind = f.kind === 'desktop' ? 'desktop' : 'mobile'
+      const set = devices.get(f.deviceId) ?? new Set()
+      set.add(conn)
+      devices.set(f.deviceId, set)
+      return send(ws, { t: 'ready', deviceId: f.deviceId })
+    }
+
+    if (!conn.deviceId) {
+      send(ws, { t: 'error', code: 'unauthorized', message: 'login first' })
+      return
+    }
+
+    switch (f.t) {
+      case 'send': {
+        const targets = devices.get(f.to)
+        if (!targets?.size)
+          return send(ws, { t: 'error', id: f.id, code: 'offline', message: 'peer offline' })
+        for (const t of targets)
+          send(t.ws, {
+            t: 'msg',
+            from: conn.deviceId,
+            fromKey: conn.publicKey!,
+            payload: f.payload,
+          })
+        return send(ws, { t: 'ack', id: f.id })
+      }
+      case 'push': {
+        if (!push)
+          return send(ws, {
+            t: 'error',
+            id: f.id,
+            code: 'push_unavailable',
+            message: 'push disabled',
+          })
+        if (!push.hasSubscription(f.to))
+          return send(ws, {
+            t: 'error',
+            id: f.id,
+            code: 'no_subscription',
+            message: 'no subscription',
+          })
+        // Web Push payload limit is ~4KB; senders keep these small.
+        if (f.payload.length > 3000)
+          return send(ws, {
+            t: 'error',
+            id: f.id,
+            code: 'too_large',
+            message: 'push payload too large',
+          })
+        const body = JSON.stringify({
+          from: conn.deviceId,
+          fromKey: conn.publicKey,
+          payload: f.payload,
+        })
+        const ok = await push.send(f.to, body)
+        return send(
+          ws,
+          ok
+            ? { t: 'ack', id: f.id }
+            : { t: 'error', id: f.id, code: 'offline', message: 'push failed' },
+        )
+      }
+      case 'push.subscribe':
+        push?.subscribe(conn.deviceId, f.subscription)
+        return
+      case 'presence': {
+        const online: Record<string, boolean> = {}
+        for (const id of (f.ids ?? []).slice(0, 100)) online[id] = !!devices.get(id)?.size
+        return send(ws, { t: 'presence', id: f.id, online })
+      }
+      default:
+        return send(ws, { t: 'error', code: 'bad_frame', message: 'unknown frame' })
+    }
+  }
+
+  await new Promise<void>((r) => server.listen(config.port, config.host, r))
+  const addr = server.address() as AddressInfo
+  const host = config.host === '0.0.0.0' ? '127.0.0.1' : config.host
+  return {
+    url: `http://${host}:${addr.port}`,
+    server,
+    online: () => devices.size,
+    close: () =>
+      new Promise((r) => {
+        for (const c of wss.clients) c.terminate()
+        wss.close()
+        server.closeAllConnections()
+        server.close(() => r())
+      }),
+  }
+}

@@ -47,6 +47,16 @@ export interface ProjectRow {
   updatedAt: number
 }
 
+export interface TrustedDeviceRow {
+  deviceId: string
+  name: string
+  platform: string | null
+  /** base64url Ed25519 public key */
+  publicKey: string
+  pairedAt: number
+  lastSeen: number | null
+}
+
 export interface ConversationParams {
   temperature?: number
   maxOutputTokens?: number
@@ -777,6 +787,60 @@ export class Store {
         this.now(),
       ).changes,
     )
+  }
+
+  // ── trusted devices ────────────────────────────────────────
+  // Local trust only: these rows are never exported or synced.
+
+  private toDevice = (r: Row): TrustedDeviceRow => ({
+    deviceId: r.device_id as string,
+    name: r.name as string,
+    platform: (r.platform as string | null) ?? null,
+    publicKey: r.public_key as string,
+    pairedAt: r.paired_at as number,
+    lastSeen: (r.last_seen as number | null) ?? null,
+  })
+
+  listTrustedDevices(): TrustedDeviceRow[] {
+    return this.all(
+      'SELECT * FROM trusted_devices WHERE revoked_at IS NULL ORDER BY paired_at',
+    ).map(this.toDevice)
+  }
+
+  getTrustedDevice(deviceId: string): TrustedDeviceRow | undefined {
+    const r = this.get(
+      'SELECT * FROM trusted_devices WHERE device_id = ? AND revoked_at IS NULL',
+      deviceId,
+    )
+    return r && this.toDevice(r)
+  }
+
+  trustDevice(input: {
+    deviceId: string
+    name: string
+    platform: string | null
+    publicKey: string
+  }): TrustedDeviceRow {
+    this.run(
+      `INSERT INTO trusted_devices (device_id, name, platform, public_key, paired_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, platform = excluded.platform,
+         public_key = excluded.public_key, paired_at = excluded.paired_at, revoked_at = NULL`,
+      input.deviceId,
+      input.name,
+      input.platform,
+      input.publicKey,
+      this.now(),
+    )
+    return this.getTrustedDevice(input.deviceId)!
+  }
+
+  revokeDevice(deviceId: string): void {
+    this.run('UPDATE trusted_devices SET revoked_at = ? WHERE device_id = ?', this.now(), deviceId)
+  }
+
+  touchDevice(deviceId: string): void {
+    this.run('UPDATE trusted_devices SET last_seen = ? WHERE device_id = ?', this.now(), deviceId)
   }
 
   // ── settings ───────────────────────────────────────────────

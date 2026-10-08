@@ -105,4 +105,15 @@ export const migrations: readonly string[] = [
   CREATE INDEX messages_parent ON messages(parent_id);
   CREATE INDEX image_jobs_created ON image_jobs(created_at DESC);
   `,
+  /* 3: devices paired for remote control (phones) */ `
+  CREATE TABLE trusted_devices (
+    device_id  TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    platform   TEXT,
+    public_key TEXT NOT NULL,
+    paired_at  INTEGER NOT NULL,
+    last_seen  INTEGER,
+    revoked_at INTEGER
+  );
+  `,
 ]
