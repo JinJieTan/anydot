@@ -300,4 +300,22 @@ describe('toModelMessages', () => {
     expect(value(1)).toMatch(/^x{10}\n…\[truncated 90 chars\]$/)
     expect(value(3)).toBe(long)
   })
+
+  it('starts from the latest compaction summary', async () => {
+    const out = await toModelMessages(
+      [
+        msg('user', [{ type: 'text', text: 'old request' }]),
+        msg('assistant', [{ type: 'text', text: 'old answer' }]),
+        msg('system', [{ type: 'summary', text: 'S1' }]),
+        msg('assistant', [{ type: 'text', text: 'continuing' }]),
+      ],
+      async () => new Uint8Array(),
+    )
+    expect(out).toHaveLength(2)
+    expect(out[0]).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('<conversation_summary>\nS1'),
+    })
+    expect(out[1]).toMatchObject({ role: 'assistant' })
+  })
 })

@@ -128,8 +128,20 @@ export async function toModelMessages(
     pending = new Map()
   }
 
+  // Start from the latest compaction summary, if any: it stands in for everything before it.
+  const lastSummary = path.findLastIndex((m) => m.parts.some((p) => p.type === 'summary'))
+  if (lastSummary > 0) path = path.slice(lastSummary)
+
   for (const msg of path) {
     if (msg.role !== 'tool') flushPending()
+
+    const summary = msg.parts.find(
+      (p): p is Extract<MessagePart, { type: 'summary' }> => p.type === 'summary',
+    )
+    if (summary) {
+      out.push({ role: 'user', content: summaryPrompt(summary.text) })
+      continue
+    }
 
     if (msg.role === 'system') {
       const text = msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
@@ -193,6 +205,11 @@ export async function toModelMessages(
   }
   flushPending()
   return out
+}
+
+/** How a compaction summary is presented to the model when the run continues. */
+export function summaryPrompt(summary: string): string {
+  return `<conversation_summary>\n${summary}\n</conversation_summary>\n\nThe earlier conversation was compacted into the summary above. Continue from where it left off.`
 }
 
 export interface ToolDefinition {

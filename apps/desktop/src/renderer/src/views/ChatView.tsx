@@ -257,6 +257,29 @@ function ModePicker({ project }: { project: ProjectDTO }) {
 
 const EMPTY = new Map<string, ToolResultPart>()
 
+/** Where the agent compacted its context; the summary is what it continued from. */
+function SummaryDivider({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="my-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-3 text-xs text-fg-faint hover:text-fg-soft"
+      >
+        <span className="h-px flex-1 bg-line" />
+        上文已自动压缩为摘要{open ? '（收起）' : '（查看）'}
+        <span className="h-px flex-1 bg-line" />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-xl bg-muted/60 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-fg-soft">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MessageList({
   conversation,
   path,
@@ -321,7 +344,13 @@ function MessageList({
     <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-8">
         {path.map((m, i) => {
-          if (m.role === 'tool' || m.role === 'system') return null
+          if (m.role === 'system') {
+            const summary = m.parts.find((p) => p.type === 'summary')
+            return summary?.type === 'summary' ? (
+              <SummaryDivider key={m.id} text={summary.text} />
+            ) : null
+          }
+          if (m.role === 'tool') return null
           const sibs = siblingsOf(messages ?? [], m)
           const index = sibs.findIndex((s) => s.id === m.id)
           const branch = {

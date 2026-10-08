@@ -9,6 +9,8 @@ export type MessagePart =
   | { type: 'file'; blob: string; mime: string; name: string }
   | { type: 'tool_call'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; id: string; name: string; output: unknown; isError?: boolean }
+  /** Compacted history: everything before this message is replaced by `text`. */
+  | { type: 'summary'; text: string }
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool'
 

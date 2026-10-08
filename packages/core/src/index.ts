@@ -7,6 +7,7 @@ export {
   defineTools,
   errorMessage,
   streamChat,
+  summaryPrompt,
   thinkingOptions,
   toModelMessages,
 } from './llm'

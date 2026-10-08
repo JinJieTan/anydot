@@ -14,6 +14,12 @@ beforeAll(async () => {
   // Scripted model: read a file, then edit it, then report.
   server = await startMockServer({
     reply: (r) => {
+      const body = r.body as { system?: unknown; instructions?: string }
+      const system = JSON.stringify(body.system ?? body.instructions ?? '')
+      if (system.includes('compacting')) return { text: 'SUMMARY: read hello.txt, next edit it' }
+      // After compaction the model only sees the summary.
+      if (r.lastUserText.includes('<conversation_summary>'))
+        return { text: 'continued from summary' }
       const n = r.toolResults.length
       if (r.lastUserText === 'chat') return { text: 'just chatting' }
       if (n === 0)
@@ -149,5 +155,29 @@ describe('runAgent', () => {
       approve: async () => 'allow',
     })
     expect(res).toMatchObject({ status: 'error', error: expect.stringContaining('401') })
+  })
+
+  it('compacts the history when input grows past the threshold', async () => {
+    const events: AgentEvent[] = []
+    const res = await runAgent({
+      model: {
+        provider: { baseUrl: server.url, apiKey: 'sk-test', type: 'auto' },
+        modelId: 'claude-sonnet-5-5',
+      },
+      messages: [{ role: 'user', content: 'fix it' }],
+      tools: ALL_TOOLS,
+      ctx: ctx(),
+      mode: 'auto',
+      compactAtTokens: 5, // mock reports 12 input tokens per call
+      onEvent: (e) => events.push(e),
+      approve: async () => 'allow',
+    })
+    expect(res.status).toBe('done')
+    expect(events).toContainEqual({
+      type: 'compacted',
+      summary: 'SUMMARY: read hello.txt, next edit it',
+    })
+    const last = events.filter((e) => e.type === 'step-end').at(-1)
+    expect(last).toMatchObject({ parts: [{ type: 'text', text: 'continued from summary' }] })
   })
 })

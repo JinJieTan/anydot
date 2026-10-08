@@ -2,6 +2,7 @@ import {
   defineTools,
   errorMessage,
   streamChat,
+  summaryPrompt,
   type MessagePart,
   type ModelMessage,
   type ModelRef,
@@ -34,6 +35,8 @@ export type AgentEvent =
       error?: string
     }
   | { type: 'tool-result'; toolCallId: string; name: string; output: string; isError: boolean }
+  /** History was summarised to stay within the context window. */
+  | { type: 'compacted'; summary: string }
 
 export interface RunAgentOptions {
   model: ModelRef
@@ -49,6 +52,8 @@ export interface RunAgentOptions {
   /** Session-scoped "always allow" keys; mutated when the user picks allow-always. */
   allowed?: Set<string>
   maxSteps?: number
+  /** Summarise the history once a step's input exceeds this many tokens. */
+  compactAtTokens?: number
   onEvent: (e: AgentEvent) => void
   approve: (req: ApprovalRequest) => Promise<ApprovalDecision>
 }
@@ -69,7 +74,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const allowed = opts.allowed ?? new Set<string>()
   const toolSet = opts.tools.length ? defineTools(opts.tools.map((t) => t.definition)) : undefined
   const byName = new Map(opts.tools.map((t) => [t.definition.name, t]))
-  const history = [...opts.messages]
+  let history = [...opts.messages]
 
   for (let step = 1; step <= maxSteps; step++) {
     if (ctx.signal.aborted) return { status: 'aborted', steps: step - 1 }
@@ -182,6 +187,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           : { type: 'text' as const, value: r.output.output },
       })),
     })
+
+    if (
+      usage?.inputTokens &&
+      usage.inputTokens > (opts.compactAtTokens ?? 140_000) &&
+      !ctx.signal.aborted
+    ) {
+      const summary = await summarize(opts, history)
+      if (summary) {
+        history = [{ role: 'user', content: summaryPrompt(summary) }]
+        onEvent({ type: 'compacted', summary })
+      }
+    }
   }
   return {
     status: 'max-steps',
@@ -237,4 +254,32 @@ async function executeCall(
       return { output: `Invalid input: ${err.message}`, isError: true }
     return { output: `Tool failed: ${errorMessage(err)}`, isError: true }
   }
+}
+
+const COMPACT_INSTRUCTIONS = `You are compacting a coding-agent session that is running out of context.
+Write a concise but complete summary that lets the agent continue the task without the original messages:
+1. The user's request(s), quoted verbatim.
+2. Key decisions and constraints.
+3. Files read or changed, with what changed.
+4. Commands run and their important results (errors, test outcomes).
+5. Current state, and the exact next steps.
+Use the language the user writes in. Output only the summary.`
+
+/** Ask the model for a summary of the history so far. Null if it fails. */
+async function summarize(opts: RunAgentOptions, history: ModelMessage[]): Promise<string | null> {
+  let text = ''
+  for await (const e of streamChat({
+    model: opts.model,
+    system: COMPACT_INSTRUCTIONS,
+    messages: [
+      ...history,
+      { role: 'user', content: 'Summarise the session so far as instructed.' },
+    ],
+    signal: opts.ctx.signal,
+    maxOutputTokens: 4000,
+  })) {
+    if (e.type === 'text') text += e.text
+    if (e.type === 'error') return null
+  }
+  return text.trim() || null
 }

@@ -306,6 +306,18 @@ export class ChatService {
                 current = null
                 break
               }
+              case 'compacted': {
+                // Later requests start from this summary instead of the full history.
+                const m = this.store.addMessage({
+                  conversationId,
+                  parentId: leaf,
+                  role: 'system',
+                  parts: [{ type: 'summary', text: e.summary }],
+                })
+                leaf = m.id
+                this.emit({ type: 'message', conversationId, message: m })
+                break
+              }
               case 'tool-result': {
                 const m = this.store.addMessage({
                   conversationId,
