@@ -25,6 +25,7 @@ import {
 import type { BlobStore } from './blobs'
 import type { ChatService } from './chat-service'
 import { exportData, importData } from './data-transfer'
+import type { AgentHost } from './agent-host'
 import type { AgentBrowser } from './browser'
 import { computerPermissions, requestComputerPermission } from './computer-permissions'
 import { openPreview } from './preview'
@@ -42,6 +43,7 @@ interface Deps {
   remote: RemoteService
   mcp: McpService
   browser: AgentBrowser
+  agent: AgentHost
   dbPath: string
 }
 
@@ -115,6 +117,7 @@ export function registerIpc({
   remote,
   mcp,
   browser,
+  agent,
   dbPath,
 }: Deps): void {
   const getSettings = () => loadSettings(store)
@@ -312,6 +315,7 @@ export function registerIpc({
 
     'browser.show': () => browser.show(),
     'computer.permissions': () => computerPermissions(),
+    'computer.displays': () => agent.displays(),
     'computer.requestPermission': (kind) => requestComputerPermission(kind),
 
     'blobs.put': async ({ data, mime, name }) => {

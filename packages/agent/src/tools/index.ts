@@ -38,7 +38,7 @@ export {
 }
 export { BROWSER_TOOLS } from './browser'
 export type { BrowserCommand, BrowserReply } from './browser'
-export { computerTool } from './computer'
+export { computerDisplayTool, computerTool } from './computer'
 export type { ComputerInput } from './computer'
 export type { Todo } from './todo'
 export * from './types'

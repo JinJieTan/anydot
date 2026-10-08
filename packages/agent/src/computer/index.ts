@@ -1,10 +1,10 @@
 import type { ToolImage } from '@aitech/core'
-import type { MouseButton, NativeDriver, Point, Size } from './driver'
+import type { DisplayInfo, MouseButton, NativeDriver, Point, Size } from './driver'
 import { parseCombo } from './keys'
 import { macDriver } from './mac'
 import { windowsDriver } from './windows'
 
-export type { MouseButton, NativeDriver, Point, Size } from './driver'
+export type { DisplayInfo, MouseButton, NativeDriver, Point, Size } from './driver'
 export { parseCombo } from './keys'
 
 /** Screenshots are scaled down to fit this box, which is what models are trained on. */
@@ -18,30 +18,56 @@ export function nativeDriver(platform: NodeJS.Platform): NativeDriver | null {
 }
 
 /**
- * The model sees the main display as a screenshot scaled to fit
+ * The model works on one display at a time (the main one unless chosen
+ * otherwise). It sees that display as a screenshot scaled to fit
  * MAX_WIDTH×MAX_HEIGHT and gives coordinates in that space; this class maps
- * them back to the platform's native coordinates.
+ * them to the platform's global native coordinates.
  */
 export class Computer {
-  private geometry: Promise<{ native: Size; display: Size; scale: number }> | null = null
+  private geometry: Promise<{ display: DisplayInfo; size: Size; scale: number }> | null = null
+  /** Chosen display id; null means the main display. */
+  private chosen: string | null = null
 
   constructor(private readonly driver: NativeDriver) {}
 
+  displays(): Promise<DisplayInfo[]> {
+    return this.driver.displays()
+  }
+
+  /**
+   * Work on another display from now on (null: the main one). Unknown ids
+   * fall back to the main display unless `strict`.
+   */
+  async useDisplay(id: string | null, strict = false): Promise<DisplayInfo> {
+    if (strict && id !== null) {
+      const all = await this.driver.displays()
+      if (!all.some((d) => d.id === id))
+        throw new Error(`no display "${id}"; available: ${all.map((d) => d.id).join(', ')}`)
+    }
+    this.chosen = id
+    this.geometry = null
+    return (await this.measure()).display
+  }
+
   /** Size of the screenshots the model sees. */
   async display(): Promise<Size> {
+    return (await this.measure()).size
+  }
+
+  async current(): Promise<DisplayInfo> {
     return (await this.measure()).display
   }
 
   private measure() {
-    this.geometry ??= this.driver.screenSize().then((native) => {
-      const scale = Math.min(1, MAX_WIDTH / native.width, MAX_HEIGHT / native.height)
+    this.geometry ??= this.driver.displays().then((all) => {
+      const display = all.find((d) => d.id === this.chosen) ?? all.find((d) => d.main) ?? all[0]
+      if (!display) throw new Error('no display found')
+      const { width, height } = display.bounds
+      const scale = Math.min(1, MAX_WIDTH / width, MAX_HEIGHT / height)
       return {
-        native,
+        display,
         scale,
-        display: {
-          width: Math.round(native.width * scale),
-          height: Math.round(native.height * scale),
-        },
+        size: { width: Math.round(width * scale), height: Math.round(height * scale) },
       }
     })
     this.geometry.catch(() => (this.geometry = null))
@@ -49,25 +75,28 @@ export class Computer {
   }
 
   private async toNative(p: [number, number]): Promise<Point> {
-    const { scale, display } = await this.measure()
+    const { scale, size, display } = await this.measure()
     const [x, y] = p
-    if (!(x >= 0 && y >= 0 && x <= display.width && y <= display.height)) {
+    if (!(x >= 0 && y >= 0 && x <= size.width && y <= size.height)) {
       throw new Error(
-        `coordinate (${x}, ${y}) is outside the screen (${display.width}×${display.height})`,
+        `coordinate (${x}, ${y}) is outside the screen (${size.width}×${size.height})`,
       )
     }
-    return { x: x / scale, y: y / scale }
+    return { x: display.bounds.x + x / scale, y: display.bounds.y + y / scale }
   }
 
   async screenshot(): Promise<ToolImage> {
-    const { display } = await this.measure()
-    return { data: await this.driver.capture(display), mime: 'image/jpeg' }
+    const { display, size } = await this.measure()
+    return { data: await this.driver.capture(display, size), mime: 'image/jpeg' }
   }
 
-  async cursor(): Promise<[number, number]> {
-    const { scale } = await this.measure()
+  /** Cursor position on the current display, or null when it is on another one. */
+  async cursor(): Promise<[number, number] | null> {
+    const { scale, display } = await this.measure()
     const p = await this.driver.cursor()
-    return [Math.round(p.x * scale), Math.round(p.y * scale)]
+    const b = display.bounds
+    if (p.x < b.x || p.y < b.y || p.x >= b.x + b.width || p.y >= b.y + b.height) return null
+    return [Math.round((p.x - b.x) * scale), Math.round((p.y - b.y) * scale)]
   }
 
   async move(p: [number, number]) {

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { base64ToBytes } from '@aitech/core'
-import type { NativeDriver, Point, Size } from './driver'
+import type { DisplayInfo, NativeDriver, Point } from './driver'
 import { winKeys } from './keys'
 
 /**
@@ -11,7 +11,7 @@ import { winKeys } from './keys'
  */
 const SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
-Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+Add-Type -ReferencedAssemblies System.Drawing, System.Windows.Forms -TypeDefinition @'
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -20,6 +20,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Windows.Forms;
 
 public static class AitechInput {
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
@@ -29,14 +30,31 @@ public static class AitechInput {
   [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public UNION u; }
 
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
   [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
   [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
   [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int size);
 
-  public static void Init() { SetProcessDPIAware(); }
-  public static int Width() { return GetSystemMetrics(0); }
-  public static int Height() { return GetSystemMetrics(1); }
+  // Per-monitor aware, so every display's bounds, the cursor and SetCursorPos
+  // all use physical pixels even when displays have different scaling.
+  // Called before every command: if the host process already chose a DPI mode,
+  // the thread-level setting still applies.
+  public static void Init() {
+    try {
+      SetProcessDpiAwarenessContext(new IntPtr(-4));
+      if (SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero) return;
+    } catch (EntryPointNotFoundException) { }
+    SetProcessDPIAware();
+  }
+  public static string Displays() {
+    var parts = Screen.AllScreens.Select((s, i) => string.Format(
+      "{{\"id\":\"{0}\",\"name\":\"Display {1}\",\"bounds\":{{\"x\":{2},\"y\":{3},\"width\":{4},\"height\":{5}}},\"main\":{6},\"index\":{7}}}",
+      s.DeviceName.Replace("\\", "\\\\"), i + 1, s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height,
+      s.Primary ? "true" : "false", i));
+    return "[" + string.Join(",", parts) + "]";
+  }
   public static POINT Cursor() { POINT p; GetCursorPos(out p); return p; }
 
   static void Send(params INPUT[] inputs) {
@@ -77,11 +95,10 @@ public static class AitechInput {
       Send(K(0, c, 4), K(0, c, 4 | 2));
     }
   }
-  public static string Capture(int w, int h) {
-    int sw = Width(), sh = Height();
+  public static string Capture(int x, int y, int sw, int sh, int w, int h) {
     using (var full = new Bitmap(sw, sh))
     using (var scaled = new Bitmap(w, h)) {
-      using (var g = Graphics.FromImage(full)) g.CopyFromScreen(0, 0, 0, 0, full.Size);
+      using (var g = Graphics.FromImage(full)) g.CopyFromScreen(x, y, 0, 0, full.Size);
       using (var g = Graphics.FromImage(scaled)) {
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.DrawImage(full, 0, 0, w, h);
@@ -99,12 +116,13 @@ public static class AitechInput {
 $in = [Console]::In
 while ($null -ne ($line = $in.ReadLine())) {
   try {
+    [AitechInput]::Init()
     $a = $line | ConvertFrom-Json
     $r = @{}
     switch ($a.op) {
-      'screen' { $r = @{ width = [AitechInput]::Width(); height = [AitechInput]::Height() } }
+      'displays' { $r = [AitechInput]::Displays() }
       'cursor' { $p = [AitechInput]::Cursor(); $r = @{ x = $p.X; y = $p.Y } }
-      'capture' { $r = @{ data = [AitechInput]::Capture($a.width, $a.height) } }
+      'capture' { $r = @{ data = [AitechInput]::Capture($a.x, $a.y, $a.sw, $a.sh, $a.width, $a.height) } }
       'move' { [AitechInput]::Move($a.x, $a.y) }
       'click' { [AitechInput]::Click($a.x, $a.y, $a.button, $a.count) }
       'down' { [AitechInput]::Move($a.x, $a.y); [AitechInput]::Button('left', $true) }
@@ -181,10 +199,12 @@ export function windowsDriver(): NativeDriver {
   }
 
   return {
-    screenSize: () => call<Size>({ op: 'screen' }),
+    // Built as a JSON string in C#: ConvertTo-Json mangles single-element arrays.
+    displays: async () => JSON.parse(await call<string>({ op: 'displays' })) as DisplayInfo[],
     cursor: () => call<Point>({ op: 'cursor' }),
-    async capture(size) {
-      const r = await call<{ data: string }>({ op: 'capture', ...size })
+    async capture(display, size) {
+      const { x, y, width: sw, height: sh } = display.bounds
+      const r = await call<{ data: string }>({ op: 'capture', x, y, sw, sh, ...size })
       return base64ToBytes(r.data)
     },
     move: (p) => call({ op: 'move', ...round(p) }).then(() => {}),

@@ -13,7 +13,7 @@ export { resolvePath } from './paths'
 export { resolveShellEnv, runCommand, shellFor } from './shell'
 export { sandboxAvailable } from './sandbox'
 export { JobManager } from './jobs'
-export { ALL_TOOLS, BROWSER_TOOLS, computerTool } from './tools'
+export { ALL_TOOLS, BROWSER_TOOLS, computerDisplayTool, computerTool } from './tools'
 export type {
   AgentTool,
   BrowserCommand,
@@ -26,5 +26,6 @@ export type {
   ToolResult,
 } from './tools'
 export { Computer, nativeDriver } from './computer'
+export type { DisplayInfo } from './computer'
 export { McpManager, mcpToolName } from './mcp'
 export type { McpServerConfig, McpServerStatus } from './mcp'

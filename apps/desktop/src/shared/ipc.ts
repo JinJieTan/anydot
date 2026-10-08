@@ -7,6 +7,7 @@
  */
 import type {
   AgentEvent,
+  DisplayInfo,
   ApprovalDecision,
   ApprovalRequest,
   McpServerConfig,
@@ -86,6 +87,8 @@ export interface Settings {
   browserTool: boolean
   /** Offer the computer tool (screen + mouse + keyboard) to project agents. */
   computerUse: boolean
+  /** Display the agent works on by default (driver id); null: the main display. */
+  computerDisplay: string | null
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -96,6 +99,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sandbox: true,
   browserTool: true,
   computerUse: false,
+  computerDisplay: null,
 }
 
 /** OS permissions computer use depends on (macOS only; elsewhere always granted). */
@@ -136,7 +140,7 @@ export interface RemoteStatusDTO {
 
 /** MCP server as shown in settings. Secret values come back masked as SECRET_MASK. */
 export type McpServerDTO = McpServerConfig
-export type { McpServerStatus }
+export type { DisplayInfo, McpServerStatus }
 export const SECRET_MASK = '••••••'
 
 export interface PairRequestDTO {
@@ -292,6 +296,7 @@ export interface Rpc {
   /** Bring the agent's built-in browser window to the front. */
   'browser.show': () => void
   'computer.permissions': () => ComputerPermissions
+  'computer.displays': () => DisplayInfo[]
   /** Ask the OS for a permission (prompts, or opens System Settings). */
   'computer.requestPermission': (kind: 'accessibility' | 'screen') => ComputerPermissions
 
@@ -360,6 +365,7 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'preview.html': true,
   'browser.show': true,
   'computer.permissions': true,
+  'computer.displays': true,
   'computer.requestPermission': true,
   'blobs.put': true,
   'blobs.saveAs': true,
@@ -427,6 +433,8 @@ export interface AgentRunRequest {
     computer: boolean
     /** Set when the computer tool can't work yet, e.g. OS permissions are missing. */
     computerBlocked?: string
+    /** Display to start on (null: main). */
+    computerDisplay?: string | null
     imageModel?: {
       provider: { baseUrl: string; apiKey: string; type: ProviderType }
       modelId: string
@@ -445,9 +453,11 @@ export type AgentRequest =
   | { type: 'jobs.clear'; conversationId: string }
   /** Stop all background jobs and exit (app is quitting). */
   | { type: 'shutdown' }
+  | { type: 'computer.displays'; id: string }
 
 export type AgentResponse =
   | { type: 'pong'; id: string; pid: number }
+  | { type: 'computer.displays'; id: string; displays?: DisplayInfo[]; error?: string }
   | { type: 'mcp.status'; servers: McpServerStatus[] }
   | { type: 'run.event'; runId: string; event: AgentEvent }
   | { type: 'run.approval'; runId: string; request: ApprovalRequest }

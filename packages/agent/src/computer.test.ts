@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Computer, type NativeDriver } from './computer'
+import { Computer, type DisplayInfo, type NativeDriver } from './computer'
+import { computerDisplayTool } from './tools'
 import { macKey, parseCombo, winKeys } from './computer/keys'
 import { dropOldImages } from './loop'
 import type { ModelMessage } from '@aitech/core'
@@ -25,6 +26,24 @@ describe('key combos', () => {
   })
 })
 
+// A Retina main display and an external one to its right, sitting higher (negative y).
+const DISPLAYS: DisplayInfo[] = [
+  {
+    id: '1',
+    name: 'Built-in',
+    bounds: { x: 0, y: 0, width: 2560, height: 1600 },
+    main: true,
+    index: 0,
+  },
+  {
+    id: '2',
+    name: 'External',
+    bounds: { x: 2560, y: -200, width: 1920, height: 1080 },
+    main: false,
+    index: 1,
+  },
+]
+
 function fakeDriver(calls: unknown[]): NativeDriver {
   const log =
     (name: string) =>
@@ -32,7 +51,7 @@ function fakeDriver(calls: unknown[]): NativeDriver {
       calls.push([name, ...args])
     }
   return {
-    screenSize: async () => ({ width: 2560, height: 1600 }),
+    displays: async () => DISPLAYS,
     capture: async () => new Uint8Array([1]),
     cursor: async () => ({ x: 100, y: 50 }),
     move: log('move'),
@@ -55,6 +74,36 @@ describe('Computer', () => {
     expect(calls).toEqual([['click', { x: 1280, y: 800 }, 'left', 2]])
     expect(await pc.cursor()).toEqual([50, 25])
     await expect(pc.move([2000, 10])).rejects.toThrow(/outside the screen/)
+  })
+
+  it('works on another display with its own origin and scale', async () => {
+    const calls: unknown[] = []
+    const pc = new Computer(fakeDriver(calls))
+    await pc.useDisplay('2')
+    expect(await pc.display()).toEqual({ width: 1280, height: 720 })
+    await pc.click([640, 360], 'left', 1)
+    expect(calls).toEqual([['click', { x: 2560 + 960, y: -200 + 540 }, 'left', 1]])
+    // The fake cursor (100, 50) is on the main display.
+    expect(await pc.cursor()).toBeNull()
+    await expect(pc.useDisplay('9', true)).rejects.toThrow(/no display "9"/)
+  })
+
+  it('lets the model list and switch displays', async () => {
+    const pc = new Computer(fakeDriver([]))
+    const ctx = {
+      cwd: '/',
+      signal: new AbortController().signal,
+      platform: process.platform,
+      env: {},
+      readFiles: new Map(),
+      computer: pc,
+    }
+    const list = await computerDisplayTool.run({ action: 'list' }, ctx)
+    expect(list.output).toContain('id=1: Built-in, 2560×1600, main (current)')
+    expect(list.output).toContain('id=2: External, 1920×1080')
+    const sw = await computerDisplayTool.run({ action: 'switch', display_id: '2' }, ctx)
+    expect(sw.output).toBe('Now working on External (1280×720).')
+    expect(sw.images).toHaveLength(1)
   })
 
   it('presses space-separated combos in order', async () => {

@@ -185,7 +185,17 @@ if (!app.requestSingleInstanceLock()) {
       (status) => emit('remote', status),
       (req) => emit('remote-pair', req),
     )
-    registerIpc({ store: s, blobs, chat, images, remote, mcp, browser, dbPath: opened.dbPath })
+    registerIpc({
+      store: s,
+      blobs,
+      chat,
+      images,
+      remote,
+      mcp,
+      browser,
+      agent,
+      dbPath: opened.dbPath,
+    })
     createWindow()
     void remote.restart()
 

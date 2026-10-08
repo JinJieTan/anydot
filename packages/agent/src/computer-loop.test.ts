@@ -17,7 +17,15 @@ beforeAll(async () => {
 afterAll(() => server.close())
 
 const driver: NativeDriver = {
-  screenSize: async () => ({ width: 1280, height: 800 }),
+  displays: async () => [
+    {
+      id: '1',
+      name: 'Main',
+      bounds: { x: 0, y: 0, width: 1280, height: 800 },
+      main: true,
+      index: 0,
+    },
+  ],
   capture: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
   cursor: async () => ({ x: 0, y: 0 }),
   move: async () => {},

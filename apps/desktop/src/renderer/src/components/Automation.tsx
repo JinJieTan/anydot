@@ -1,9 +1,9 @@
 import { AppWindow, Monitor, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ComputerPermissions } from '../../../shared/ipc'
+import type { ComputerPermissions, DisplayInfo } from '../../../shared/ipc'
 import { invoke } from '../lib/api'
 import { attempt, useApp } from '../store/app'
-import { Badge, Button, Toggle } from './ui'
+import { Badge, Button, Field, Select, Toggle } from './ui'
 
 function PermissionRow({
   label,
@@ -39,6 +39,12 @@ function PermissionRow({
 export function AutomationTab() {
   const { settings, updateSettings } = useApp()
   const [perms, setPerms] = useState<ComputerPermissions | null>(null)
+  const [displays, setDisplays] = useState<DisplayInfo[]>([])
+
+  useEffect(() => {
+    if (!settings.computerUse) return
+    void invoke('computer.displays').then(setDisplays, () => setDisplays([]))
+  }, [settings.computerUse])
 
   useEffect(() => {
     const refresh = () => void invoke('computer.permissions').then(setPerms)
@@ -119,14 +125,35 @@ export function AutomationTab() {
           </div>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-fg-soft">
-          开启后，项目对话中的 Agent 可以截取主屏幕，并控制真实的鼠标和键盘来操作其他应用。
-          它看到的是你的整个屏幕，操作也会和你抢鼠标，建议在它工作时不要同时使用电脑。
+          开启后，项目对话中的 Agent 可以截取屏幕，并控制真实的鼠标和键盘来操作其他应用。
+          它一次看一块显示器，操作会和你抢鼠标；有多块显示器时，可以让它在副屏上工作。
         </p>
         <p className="mt-2 text-sm leading-relaxed text-fg-soft">
           除“全自动”模式外，Agent
           第一次截屏或操作前都会请求确认；选择“总是允许”后，本次会话内不再询问。
           从手机派发的任务始终需要确认。
         </p>
+        {settings.computerUse && displays.length > 1 && (
+          <div className="mt-4">
+            <Field
+              label="默认显示器"
+              hint="Agent 默认在这块屏幕上工作（比如副屏），你可以继续用另一块；它也可以在任务中自己切换"
+            >
+              <Select
+                value={settings.computerDisplay ?? ''}
+                onChange={(e) => void updateSettings({ computerDisplay: e.target.value || null })}
+              >
+                <option value="">主显示器</option>
+                {displays.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}（{d.bounds.width}×{d.bounds.height}
+                    {d.main ? '，主显示器' : ''}）
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        )}
         {isMac && perms?.supported && (
           <div className="mt-4 space-y-2">
             <PermissionRow

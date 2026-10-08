@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { NativeDriver, Point, Size } from './driver'
+import type { DisplayInfo, NativeDriver, Point } from './driver'
 import { macKey } from './keys'
 
 const run = promisify(execFile)
@@ -32,9 +32,23 @@ function run(argv) {
     post(e)
   }
   switch (a.op) {
-    case 'screen': {
-      const b = $.CGDisplayBounds($.CGMainDisplayID())
-      return JSON.stringify({ width: b.size.width, height: b.size.height })
+    case 'displays': {
+      // NSScreen.screens starts with the main display, like screencapture -D 1.
+      const screens = $.NSScreen.screens
+      const out = []
+      for (let i = 0; i < screens.count; i++) {
+        const s = screens.objectAtIndex(i)
+        const id = ObjC.unwrap(s.deviceDescription.objectForKey('NSScreenNumber'))
+        const b = $.CGDisplayBounds(id)
+        out.push({
+          id: String(id),
+          name: ObjC.unwrap(s.localizedName) || 'Display ' + (i + 1),
+          bounds: { x: b.origin.x, y: b.origin.y, width: b.size.width, height: b.size.height },
+          main: id === $.CGMainDisplayID(),
+          index: i,
+        })
+      }
+      return JSON.stringify(out)
     }
     case 'cursor': {
       const p = $.CGEventGetLocation($.CGEventCreate(null))
@@ -119,15 +133,17 @@ async function call<T = unknown>(op: Record<string, unknown>): Promise<T> {
 
 export function macDriver(): NativeDriver {
   return {
-    screenSize: () => call<Size>({ op: 'screen' }),
+    displays: () => call<DisplayInfo[]>({ op: 'displays' }),
     cursor: () => call<Point>({ op: 'cursor' }),
-    async capture(size) {
+    async capture(display, size) {
       const dir = await mkdtemp(join(tmpdir(), 'aitech-shot-'))
       try {
         const raw = join(dir, 'raw.png')
         const out = join(dir, 'shot.jpg')
-        // -x: no sound, -m: main display only
-        await run('screencapture', ['-x', '-m', '-t', 'png', raw], { timeout: 15_000 })
+        // -x: no sound, -D: which display (1 = main)
+        await run('screencapture', ['-x', '-D', String(display.index + 1), '-t', 'png', raw], {
+          timeout: 15_000,
+        })
         await run(
           'sips',
           [

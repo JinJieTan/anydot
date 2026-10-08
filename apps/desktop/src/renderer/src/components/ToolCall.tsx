@@ -90,6 +90,10 @@ const META: Record<string, { icon: ReactNode; summary: (i: Input) => string }> =
   browser_back: { icon: <AppWindow className="size-3.5" />, summary: () => '后退' },
   browser_screenshot: { icon: <AppWindow className="size-3.5" />, summary: () => '网页截图' },
   computer: { icon: <Monitor className="size-3.5" />, summary: (i) => computerSummary(i) },
+  computer_display: {
+    icon: <Monitor className="size-3.5" />,
+    summary: (i) => (i.action === 'switch' ? `切换到显示器 ${s(i.display_id)}` : '查看显示器'),
+  },
 }
 
 function computerSummary(i: Input): string {

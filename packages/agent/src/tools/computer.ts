@@ -162,8 +162,10 @@ async function runComputer(i: ComputerInput, ctx: ToolContext): Promise<ToolResu
       return { output: `Screenshot (${d.width}×${d.height}).`, images: [await pc.screenshot()] }
     }
     case 'cursor_position': {
-      const [x, y] = await pc.cursor()
-      return { output: `Cursor at (${x}, ${y}).` }
+      const at = await pc.cursor()
+      return {
+        output: at ? `Cursor at (${at[0]}, ${at[1]}).` : 'The cursor is on another display.',
+      }
     }
     case 'wait': {
       const s = Math.max(0, Math.min(30, i.duration ?? 1))
@@ -232,4 +234,52 @@ async function runComputer(i: ComputerInput, ctx: ToolContext): Promise<ToolResu
   }
   await sleep(SETTLE_MS, ctx.signal)
   return { output: done, images: [await pc.screenshot()] }
+}
+
+/**
+ * List displays and choose which one the computer tool works on. A separate
+ * tool, because the provider-native computer tool's input can't be extended.
+ */
+export const computerDisplayTool: AgentTool<{ action: 'list' | 'switch'; display_id?: string }> = {
+  kind: 'computer',
+  definition: {
+    name: 'computer_display',
+    description:
+      'List the displays, or switch the display the computer tool sees and controls. ' +
+      'After switching, take a new screenshot: coordinates refer to the current display.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'switch'] },
+        display_id: { type: 'string', description: 'For switch: an id from list' },
+      },
+      required: ['action'],
+    },
+  },
+  describe: (i) => (i.action === 'switch' ? `切换到显示器 ${i.display_id ?? ''}` : '查看显示器'),
+  async run(input, ctx) {
+    if (ctx.computerBlocked) return { output: ctx.computerBlocked, isError: true }
+    const pc = ctx.computer
+    if (!pc) return { output: 'Computer use is not available.', isError: true }
+    if (input.action === 'switch') {
+      if (!input.display_id) throw new ToolInputError('"display_id" is required for switch')
+      const d = await pc.useDisplay(input.display_id, true)
+      const size = await pc.display()
+      return {
+        output: `Now working on ${d.name} (${size.width}×${size.height}).`,
+        images: [await pc.screenshot()],
+      }
+    }
+    const current = await pc.current()
+    const all = await pc.displays()
+    return {
+      output: all
+        .map(
+          (d) =>
+            `- id=${d.id}: ${d.name}, ${d.bounds.width}×${d.bounds.height}` +
+            `${d.main ? ', main' : ''}${d.id === current.id ? ' (current)' : ''}`,
+        )
+        .join('\n'),
+    }
+  },
 }

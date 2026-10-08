@@ -79,7 +79,8 @@ export function buildSystemPrompt(opts: {
     lines.push(
       '',
       '# Computer use',
-      "- The computer tool sees the user's real main display and moves their real mouse and keyboard. Take a screenshot first, and check the result after each step.",
+      "- The computer tool sees one of the user's real displays and moves their real mouse and keyboard. Take a screenshot first, and check the result after each step.",
+      '- With several displays, computer_display lists them and switches which one you work on.',
       '- Prefer files, bash and the browser tools when they can do the job; use the computer tool for native apps and things only visible on screen.',
       '- Never enter passwords, payment details or other secrets, and never change system or security settings. Ask the user to do those.',
       '- Before anything irreversible or outward-facing (sending, purchasing, deleting), stop and ask the user.',

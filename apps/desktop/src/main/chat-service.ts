@@ -358,6 +358,7 @@ export class ChatService {
             browser: this.settings().browserTool,
             computer: this.settings().computerUse,
             computerBlocked: this.settings().computerUse ? computerBlocked() : undefined,
+            computerDisplay: this.settings().computerDisplay,
             imageModel: this.imageModel(),
           },
         }

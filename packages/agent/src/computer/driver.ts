@@ -12,15 +12,26 @@ export interface Size {
 
 export type MouseButton = 'left' | 'right' | 'middle'
 
+export interface DisplayInfo {
+  /** Stable while the display stays connected (CGDirectDisplayID / device name). */
+  id: string
+  name: string
+  /** Position and size in the global native coordinate space. */
+  bounds: Point & Size
+  main: boolean
+  /** Position in the OS display list (macOS `screencapture -D` is index + 1). */
+  index: number
+}
+
 /**
- * OS-level screen capture and input, in the platform's native coordinate
- * space (points on macOS, physical pixels on Windows).
+ * OS-level screen capture and input, in the platform's global native
+ * coordinate space (points on macOS, physical pixels on Windows), where
+ * every display has its own region.
  */
 export interface NativeDriver {
-  /** Size of the main display. */
-  screenSize(): Promise<Size>
-  /** JPEG of the main display, resized to exactly `size`. */
-  capture(size: Size): Promise<Uint8Array>
+  displays(): Promise<DisplayInfo[]>
+  /** JPEG of one display, resized to exactly `size`. */
+  capture(display: DisplayInfo, size: Size): Promise<Uint8Array>
   cursor(): Promise<Point>
   move(p: Point): Promise<void>
   click(p: Point, button: MouseButton, count: number): Promise<void>

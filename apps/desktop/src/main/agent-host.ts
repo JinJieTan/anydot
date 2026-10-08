@@ -22,6 +22,7 @@ export interface RunHandle {
 export class AgentHost {
   private child: UtilityProcess | null = null
   private pings = new Map<string, (pid: number) => void>()
+  private replies = new Map<string, (res: AgentResponse) => void>()
   private runs = new Map<string, RunHandlers>()
   private stopping = false
   /** Called after every (re)start, so state like MCP config can be re-sent. */
@@ -78,6 +79,10 @@ export class AgentHost {
       case 'pong':
         this.pings.get(res.id)?.(res.pid)
         this.pings.delete(res.id)
+        break
+      case 'computer.displays':
+        this.replies.get(res.id)?.(res)
+        this.replies.delete(res.id)
         break
       case 'mcp.status':
         this.onMcpStatus?.(res.servers)
@@ -151,6 +156,25 @@ export class AgentHost {
         if (this.runs.has(runId)) this.post({ type: 'run.approve', runId, toolCallId, decision })
       },
     }
+  }
+
+  /** The displays the computer tool can work on, as the agent's driver sees them. */
+  displays(): Promise<import('@aitech/agent').DisplayInfo[]> {
+    if (!this.child) return Promise.reject(new Error('Agent 进程未运行'))
+    const id = newId()
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.replies.delete(id)
+        reject(new Error('读取显示器超时'))
+      }, 15_000)
+      this.replies.set(id, (res) => {
+        clearTimeout(timer)
+        if (res.type !== 'computer.displays') return
+        if (res.error !== undefined) reject(new Error(res.error))
+        else resolve(res.displays ?? [])
+      })
+      this.post({ type: 'computer.displays', id })
+    })
   }
 
   async ping(timeoutMs = 2000): Promise<{ ok: boolean; pid?: number; latencyMs: number }> {

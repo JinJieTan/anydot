@@ -10,6 +10,7 @@ import {
   BROWSER_TOOLS,
   buildSystemPrompt,
   Computer,
+  computerDisplayTool,
   computerTool,
   JobManager,
   loadProjectInstructions,
@@ -100,12 +101,19 @@ async function start(runId: string, req: AgentRunRequest) {
       cwd = a.cwd
       env = await shellEnv
       const model = { provider: req.provider, modelId: req.modelId, protocol: req.protocol }
+      // Each run starts on the display chosen in settings.
+      if (a.computer)
+        await getComputer()
+          ?.useDisplay(a.computerDisplay ?? null)
+          .catch(() => {})
       const pcTool = a.computer ? await buildComputerTool(model) : null
       tools = toolsForMode(
         [
           ...ALL_TOOLS,
           ...(a.browser ? BROWSER_TOOLS : []),
-          ...(pcTool ? [pcTool as unknown as (typeof ALL_TOOLS)[number]] : []),
+          ...(pcTool
+            ? [pcTool, computerDisplayTool].map((t) => t as unknown as (typeof ALL_TOOLS)[number])
+            : []),
           ...mcp.tools(),
         ],
         a.mode,
@@ -190,6 +198,17 @@ process.parentPort.on('message', (event) => {
       hostCalls.delete(msg.id)
       if (msg.error !== undefined) call.reject(new Error(msg.error))
       else call.resolve(msg.result)
+      break
+    }
+    case 'computer.displays': {
+      const pc = getComputer()
+      if (!pc) send({ type: 'computer.displays', id: msg.id, displays: [] })
+      else
+        pc.displays().then(
+          (displays) => send({ type: 'computer.displays', id: msg.id, displays }),
+          (err: unknown) =>
+            send({ type: 'computer.displays', id: msg.id, error: (err as Error).message }),
+        )
       break
     }
     case 'shutdown':
