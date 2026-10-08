@@ -54,15 +54,15 @@ MOBILE_DIR=apps/mobile/dist PUBLIC_URL=http://<电脑局域网 IP>:8090 node app
 
 ## 常用命令
 
-| 命令 | 说明 |
-|---|---|
-| `pnpm dev` | 启动桌面端（热更新） |
-| `pnpm test` | 全部单元 / 集成测试 |
-| `pnpm typecheck` | 类型检查 |
-| `pnpm lint` / `pnpm format` | 代码检查 / 格式化 |
-| `pnpm --filter @aitech/desktop dist:mac` | 打包 macOS（dmg） |
-| `pnpm --filter @aitech/desktop dist:win` | 打包 Windows（nsis） |
-| `docker build -f apps/relay/Dockerfile -t aitech-relay .` | 中继 + 手机网页镜像 |
+| 命令                                                      | 说明                 |
+| --------------------------------------------------------- | -------------------- |
+| `pnpm dev`                                                | 启动桌面端（热更新） |
+| `pnpm test`                                               | 全部单元 / 集成测试  |
+| `pnpm typecheck`                                          | 类型检查             |
+| `pnpm lint` / `pnpm format`                               | 代码检查 / 格式化    |
+| `pnpm --filter @aitech/desktop dist:mac`                  | 打包 macOS（dmg）    |
+| `pnpm --filter @aitech/desktop dist:win`                  | 打包 Windows（nsis） |
+| `docker build -f apps/relay/Dockerfile -t aitech-relay .` | 中继 + 手机网页镜像  |
 
 ## 目录结构
 
