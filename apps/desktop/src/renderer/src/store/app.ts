@@ -12,9 +12,21 @@ import { DEFAULT_SETTINGS } from '../../../shared/ipc'
 import { invoke } from '../lib/api'
 
 export type View = 'chat' | 'images' | 'settings'
+/** Which sidebar tab is showing: plain chats (plus image/video) or project-scoped coding tasks. */
+export type Mode = 'chat' | 'code'
+
+const MODE_KEY = 'sidebar-mode'
+function initialMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'code' ? 'code' : 'chat'
+  } catch {
+    return 'chat'
+  }
+}
 
 interface AppState {
   view: View
+  mode: Mode
   activeId: string | null
   conversations: ConversationDTO[]
   search: string
@@ -28,6 +40,7 @@ interface AppState {
   toast: { id: number; text: string; kind: 'info' | 'error' } | null
 
   setView: (view: View) => void
+  setMode: (mode: Mode) => void
   open: (id: string | null) => void
   setSearch: (q: string) => void
   loadConversations: () => Promise<void>
@@ -47,6 +60,7 @@ let toastSeq = 0
 
 export const useApp = create<AppState>((set, get) => ({
   view: 'chat',
+  mode: initialMode(),
   activeId: null,
   conversations: [],
   search: '',
@@ -59,8 +73,23 @@ export const useApp = create<AppState>((set, get) => ({
   running: new Set(),
   toast: null,
 
-  setView: (view) => set({ view }),
-  open: (id) => set({ activeId: id, view: 'chat' }),
+  setView: (view) => {
+    set({ view })
+    if (view === 'images') get().setMode('chat')
+  },
+  setMode: (mode) => {
+    set({ mode })
+    try {
+      localStorage.setItem(MODE_KEY, mode)
+    } catch {
+      // Storage unavailable; the tab just won't be remembered.
+    }
+  },
+  open: (id) => {
+    set({ activeId: id, view: 'chat' })
+    const c = id ? get().conversations.find((x) => x.id === id) : undefined
+    if (c) get().setMode(c.projectId ? 'code' : 'chat')
+  },
   setSearch: (search) => {
     set({ search })
     void get().loadConversations()

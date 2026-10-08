@@ -1,11 +1,13 @@
 import clsx from 'clsx'
 import {
   ChevronRight,
+  Code2,
   Folder,
   FolderOpen,
   FolderPlus,
   Image,
   MessageSquarePlus,
+  MessagesSquare,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -32,8 +34,19 @@ export function Sidebar({
   onNewTask: (projectId: string) => void
   onNewProject: () => void
 }) {
-  const { conversations, activeId, view, search, setSearch, open, setView, running, projects } =
-    useApp()
+  const {
+    conversations,
+    activeId,
+    view,
+    mode,
+    setMode,
+    search,
+    setSearch,
+    open,
+    setView,
+    running,
+    projects,
+  } = useApp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const activeProjectId = conversations.find((c) => c.id === activeId)?.projectId ?? null
@@ -58,17 +71,47 @@ export function Sidebar({
     return out
   }, [conversations])
 
+  const newInMode = () => {
+    if (mode === 'chat') return onNewChat()
+    const projectId = activeProjectId ?? projects[0]?.id
+    if (projectId) onNewTask(projectId)
+    else onNewProject()
+  }
+
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-canvas">
+    <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-canvas">
       <div
-        className={clsx(
-          'drag flex h-12 shrink-0 items-center justify-end gap-1 px-2',
-          isMac && 'pl-20',
-        )}
+        className={clsx('drag flex h-12 shrink-0 items-center justify-end px-2', isMac && 'pl-20')}
       >
-        <IconButton label="新对话 (⌘N)" onClick={onNewChat}>
+        <IconButton label={mode === 'chat' ? '新对话 (⌘N)' : '新任务'} onClick={newInMode}>
           <MessageSquarePlus className="size-4.5" />
         </IconButton>
+      </div>
+
+      <div className="px-3 pb-2">
+        <div className="flex rounded-lg bg-muted/70 p-0.5 text-sm">
+          {(
+            [
+              ['chat', '对话', <MessagesSquare key="i" className="size-3.5" />],
+              ['code', 'Code', <Code2 key="i" className="size-3.5" />],
+            ] as const
+          ).map(([m, label, icon]) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={clsx(
+                'flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md transition-colors',
+                mode === m
+                  ? 'bg-surface font-medium text-fg shadow-sm'
+                  : 'text-fg-faint hover:text-fg',
+              )}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="px-3 pb-2">
@@ -77,91 +120,98 @@ export function Sidebar({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索对话"
+            placeholder={mode === 'chat' ? '搜索对话' : '搜索任务'}
             className="h-8 w-full rounded-lg border border-transparent bg-muted/70 pr-2 pl-8 text-sm outline-none placeholder:text-fg-faint focus:border-line-strong focus:bg-surface"
           />
         </div>
       </div>
 
-      <nav className="space-y-0.5 px-2 pb-2">
-        <NavItem
-          active={view === 'images'}
-          onClick={() => setView('images')}
-          icon={<Image className="size-4" />}
-        >
-          生图 / 视频
-        </NavItem>
-      </nav>
+      {mode === 'chat' && (
+        <nav className="space-y-0.5 px-2 pb-2">
+          <NavItem
+            active={view === 'images'}
+            onClick={() => setView('images')}
+            icon={<Image className="size-4" />}
+          >
+            生图 / 视频
+          </NavItem>
+        </nav>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <div className="mb-2">
-          <div className="group flex items-center px-2 pt-2 pb-1">
-            <span className="flex-1 text-[11px] font-medium text-fg-faint">项目</span>
-            <button
-              type="button"
-              title="添加项目文件夹"
-              onClick={onNewProject}
-              className="rounded p-0.5 text-fg-faint hover:bg-line hover:text-fg"
-            >
-              <FolderPlus className="size-3.5" />
-            </button>
-          </div>
-          {projects.map((p) => (
-            <ProjectItem
-              key={p.id}
-              project={p}
-              open={expanded.has(p.id) || p.id === activeProjectId || !!search}
-              onToggle={() =>
-                setExpanded((s) => {
-                  const next = new Set(s)
-                  if (next.has(p.id)) next.delete(p.id)
-                  else next.add(p.id)
-                  return next
-                })
-              }
-              onNewTask={() => onNewTask(p.id)}
-            >
-              {(byProject.get(p.id) ?? []).map((c) => (
-                <ConversationItem
-                  key={c.id}
-                  conversation={c}
-                  active={view === 'chat' && c.id === activeId}
-                  running={running.has(c.id)}
-                  onOpen={() => open(c.id)}
-                />
-              ))}
-            </ProjectItem>
-          ))}
-          {!projects.length && (
-            <button
-              type="button"
-              onClick={onNewProject}
-              className="mx-1 w-[calc(100%-0.5rem)] rounded-lg border border-dashed border-line-strong px-3 py-2 text-left text-xs text-fg-faint hover:border-accent hover:text-accent"
-            >
-              添加一个项目文件夹，让 AI 帮你写代码
-            </button>
-          )}
-        </div>
-        {groups.map((g) => (
-          <div key={g.label} className="mb-2">
-            <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-fg-faint">
-              {g.label === '置顶' ? g.label : `对话 · ${g.label}`}
+        {mode === 'code' ? (
+          <div className="mb-2">
+            <div className="group flex items-center px-2 pt-2 pb-1">
+              <span className="flex-1 text-[11px] font-medium text-fg-faint">项目</span>
+              <button
+                type="button"
+                title="添加项目文件夹"
+                onClick={onNewProject}
+                className="rounded p-0.5 text-fg-faint hover:bg-line hover:text-fg"
+              >
+                <FolderPlus className="size-3.5" />
+              </button>
             </div>
-            {g.items.map((c) => (
-              <ConversationItem
-                key={c.id}
-                conversation={c}
-                active={view === 'chat' && c.id === activeId}
-                running={running.has(c.id)}
-                onOpen={() => open(c.id)}
-              />
+            {projects.map((p) => (
+              <ProjectItem
+                key={p.id}
+                project={p}
+                open={expanded.has(p.id) || p.id === activeProjectId || !!search}
+                onToggle={() =>
+                  setExpanded((s) => {
+                    const next = new Set(s)
+                    if (next.has(p.id)) next.delete(p.id)
+                    else next.add(p.id)
+                    return next
+                  })
+                }
+                onNewTask={() => onNewTask(p.id)}
+              >
+                {(byProject.get(p.id) ?? []).map((c) => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    active={view === 'chat' && c.id === activeId}
+                    running={running.has(c.id)}
+                    onOpen={() => open(c.id)}
+                  />
+                ))}
+              </ProjectItem>
             ))}
+            {!projects.length && (
+              <button
+                type="button"
+                onClick={onNewProject}
+                className="mx-1 w-[calc(100%-0.5rem)] rounded-lg border border-dashed border-line-strong px-3 py-2 text-left text-xs text-fg-faint hover:border-accent hover:text-accent"
+              >
+                添加一个项目文件夹，让 AI 帮你写代码
+              </button>
+            )}
           </div>
-        ))}
-        {!conversations.length && (
-          <div className="px-3 py-6 text-center text-xs text-fg-faint">
-            {search ? '没有匹配的对话' : '还没有对话'}
-          </div>
+        ) : (
+          <>
+            {groups.map((g) => (
+              <div key={g.label} className="mb-2">
+                <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-fg-faint">
+                  {g.label}
+                </div>
+                {g.items.map((c) => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    active={view === 'chat' && c.id === activeId}
+                    running={running.has(c.id)}
+                    onOpen={() => open(c.id)}
+                  />
+                ))}
+              </div>
+            ))}
+            {!groups.length && (
+              <div className="px-3 py-6 text-center text-xs text-fg-faint">
+                {search ? '没有匹配的对话' : '还没有对话'}
+              </div>
+            )}
+          </>
         )}
       </div>
 

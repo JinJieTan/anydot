@@ -78,6 +78,18 @@ export function thinkingOptions(protocol: Protocol, level: ThinkingLevel) {
   }
 }
 
+/**
+ * Responses API: never rely on server-side storage. With the SDK default
+ * (`store: true`) reasoning items are replayed as `item_reference` ids, which
+ * gateways / ZDR accounts that don't persist items reject with a 404. With
+ * `store: false` the SDK requests `reasoning.encrypted_content` and replays it inline.
+ */
+function requestOptions(protocol: Protocol, level: ThinkingLevel) {
+  const thinking = thinkingOptions(protocol, level)
+  if (protocol !== 'openai-responses') return thinking
+  return { openai: { ...thinking?.openai, store: false } }
+}
+
 export type BlobLoader = (sha256: string) => Promise<Uint8Array>
 
 export interface ToModelMessagesOptions {
@@ -271,7 +283,7 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
     temperature: opts.temperature,
     maxOutputTokens: opts.maxOutputTokens,
     tools: opts.tools,
-    providerOptions: thinkingOptions(protocol, opts.thinking ?? 'off') as never,
+    providerOptions: requestOptions(protocol, opts.thinking ?? 'off') as never,
     abortSignal: opts.signal,
     maxRetries: 1,
   })

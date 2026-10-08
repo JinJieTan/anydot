@@ -52,6 +52,7 @@ export function App() {
     if (!c) return
     useChat.getState().setConversation(c)
     useChat.setState((s) => ({ messages: { ...s.messages, [c.id]: [] } }))
+    useApp.getState().upsertConversation(c)
     useApp.getState().open(c.id)
   }, [])
 
