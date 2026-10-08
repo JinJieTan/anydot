@@ -49,6 +49,7 @@ static class AitechSandbox {
   [DllImport("advapi32.dll", SetLastError = true)] static extern bool CreateRestrictedToken(IntPtr existing, uint flags,
     uint disableCount, IntPtr disable, uint deleteCount, IntPtr delete, uint restrictCount, SID_AND_ATTRIBUTES[] restrict, out IntPtr token);
   [DllImport("advapi32.dll", SetLastError = true)] static extern bool SetTokenInformation(IntPtr token, int cls, IntPtr info, int len);
+  [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(IntPtr token, int cls, IntPtr info, int len, out int needed);
   [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool CreateProcessAsUser(IntPtr token,
     string app, StringBuilder cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string cwd,
     ref STARTUPINFO si, out PROCESS_INFORMATION pi);
@@ -117,16 +118,32 @@ static class AitechSandbox {
     return p;
   }
 
+  // TOKEN_GROUPS from TokenLogonSid (28): { DWORD count; SID_AND_ATTRIBUTES groups[] }.
+  static IntPtr LogonSid(IntPtr token) {
+    int needed;
+    GetTokenInformation(token, 28, IntPtr.Zero, 0, out needed);
+    if (needed <= 0) return IntPtr.Zero;
+    var buf = Marshal.AllocHGlobal(needed);
+    if (!GetTokenInformation(token, 28, buf, needed, out needed) || Marshal.ReadInt32(buf) < 1) return IntPtr.Zero;
+    // The array starts after the count, aligned to a pointer.
+    return Marshal.ReadIntPtr(buf, IntPtr.Size);
+  }
+
   static int Run(string[] argv, int start, SecurityIdentifier sid) {
     IntPtr token;
     // DUPLICATE | QUERY | ASSIGN_PRIMARY | ADJUST_DEFAULT | ADJUST_SESSIONID
     if (!OpenProcessToken(GetCurrentProcess(), 0x2 | 0x8 | 0x1 | 0x80 | 0x100, out token))
       throw new Exception("OpenProcessToken failed: " + Marshal.GetLastWin32Error());
     var everyone = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
-    var restrict = new SID_AND_ATTRIBUTES[] {
+    var restrictList = new List<SID_AND_ATTRIBUTES> {
       new SID_AND_ATTRIBUTES { Sid = SidPtr(sid) },
       new SID_AND_ATTRIBUTES { Sid = SidPtr(everyone) },
     };
+    // The window station and desktop are only granted to the logon session's
+    // SID; without it console programs fail to initialise (0xC0000142).
+    var logon = LogonSid(token);
+    if (logon != IntPtr.Zero) restrictList.Add(new SID_AND_ATTRIBUTES { Sid = logon });
+    var restrict = restrictList.ToArray();
     IntPtr restricted;
     // DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED
     if (!CreateRestrictedToken(token, 0x1 | 0x8, 0, IntPtr.Zero, 0, IntPtr.Zero, (uint)restrict.Length, restrict, out restricted))
@@ -166,6 +183,7 @@ static class AitechSandbox {
     WaitForSingleObject(pi.hProcess, 0xFFFFFFFF);
     uint code;
     GetExitCodeProcess(pi.hProcess, out code);
+    if (code >= 0xC0000000) Console.Error.WriteLine("aitech-sandbox: process failed with 0x" + code.ToString("X8"));
     return (int)code;
   }
 

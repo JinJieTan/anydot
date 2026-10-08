@@ -112,15 +112,16 @@ describe.runIf(process.platform === 'win32' && sandboxAvailable())('Windows sand
     const r = await run(
       `Set-Content -Path a.txt -Value hi; Set-Content -Path "${join(tmpdir(), 'aitech-sbx-ok.txt')}" -Value ok; node -e "require('fs').writeFileSync('b.txt','x'); console.log('node ok')"; Get-Content a.txt`,
     )
-    expect(r.output).toContain('node ok')
-    expect(r.output).toContain('hi')
+    const seen = `exit ${r.exitCode}: ${r.output}`
+    expect(seen).toContain('node ok')
+    expect(seen).toContain('hi')
     expect(r.exitCode).toBe(0)
   }, 120_000)
 
   it('cannot write elsewhere or plant git hooks', async () => {
     const w = await run(`Set-Content -Path "${outside}" -Value x`)
     expect(existsSync(outside)).toBe(false)
-    expect(w.output).toMatch(/denied|UnauthorizedAccess/i)
+    expect(`exit ${w.exitCode}: ${w.output}`).toMatch(/denied|UnauthorizedAccess/i)
     await run('Set-Content -Path .git\\hooks\\pre-commit -Value evil')
     expect(existsSync(join(dir, '.git', 'hooks', 'pre-commit'))).toBe(false)
     await run('Add-Content -Path .git\\config -Value evil')
