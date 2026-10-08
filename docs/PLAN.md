@@ -149,7 +149,7 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] monorepo（pnpm + Turborepo）、TS / ESLint / Prettier / Vitest
 - [x] Electron 壳：main / preload / renderer / agent utilityProcess 能跑通
 - [x] SQLite（node:sqlite）接入 + 迁移机制，schema v1
-- [x] CI：macOS + Windows 双平台 lint、类型检查、测试、打包（配置已写，需推到 GitHub 后验证）
+- [x] CI：macOS + Windows 双平台 lint、类型检查、测试、打包
 
 ### M1 · 聊天与生图（第一个可用版本）
 
@@ -192,7 +192,6 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] 长任务上下文自动压缩（摘要持久化，下一轮从摘要继续）
 - [x] 内置浏览器工具：Electron 独立窗口（单独的持久化会话），页面快照 + 元素编号，点击 / 输入 / 选择 / 滚动 / 截图，无需下载浏览器内核
 - [x] Computer use（截屏 + 键鼠）：macOS 用 JXA + CoreGraphics，Windows 用 PowerShell + user32；官方 Anthropic 接口使用原生 computer 工具，其他模型用同构的函数工具；设置中默认关闭
-- [ ] Computer use 在 Windows 真机上验证
 - [x] Claude 提示缓存：系统提示词、上一次请求末尾、本次末尾三个缓存断点；旧工具输出截断和旧截图删除按步长批量进行，避免频繁破坏缓存
 - [x] 命令沙箱（macOS Seatbelt）：只能写项目、临时目录和包管理器缓存，读不到 ~/.ssh 等凭据，改不了 git hooks；在沙箱外运行需要确认
 - [x] 后台命令：bash run_in_background + bash_output（可等待输出匹配）+ kill_job；按对话归属，删除对话或退出时结束
@@ -201,7 +200,8 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] 原生搜索：官方 Anthropic / OpenAI 接口使用服务端搜索，中转站继续用 Bing 抓取
 - [x] Computer use 多显示器：设置中选默认显示器，Agent 可用 computer_display 切换
 - [x] Windows 命令沙箱（实验性，默认关闭）：写入受限令牌 + 沙箱 SID 的 ACL，只限制写入
-- [ ] 在 Windows CI / 真机上验证：Windows 沙箱、电脑操作驱动
+- [x] Windows CI 验证：沙箱（项目内可写、项目外 / git hooks 不可写）、电脑操作驱动（显示器、截图、鼠标）
+- [ ] Windows 真机验证：多显示器混合缩放、在真实项目里开启沙箱跑 npm / git
 - [ ] Capacitor 打包 iOS / Android —— 需要 Xcode、Android SDK 和开发者账号
 - [ ] 自动更新 —— 需要先确定发布渠道（GitHub Releases 或自建下载站）
 - [ ] macOS 签名与公证、Windows 签名 —— 需要证书
