@@ -6,10 +6,12 @@ export {
   createLanguageModel,
   defineTools,
   errorMessage,
+  nativeComputerTool,
   streamChat,
   summaryPrompt,
   thinkingOptions,
   toModelMessages,
+  toolOutput,
 } from './llm'
 export type {
   BlobLoader,
@@ -19,6 +21,7 @@ export type {
   StreamChatOptions,
   ToModelMessagesOptions,
   ToolDefinition,
+  ToolImage,
 } from './llm'
 export type { ModelMessage } from 'ai'
 export { isTextMime, textOf } from './messages'

@@ -25,6 +25,8 @@ import {
 import type { BlobStore } from './blobs'
 import type { ChatService } from './chat-service'
 import { exportData, importData } from './data-transfer'
+import type { AgentBrowser } from './browser'
+import { computerPermissions, requestComputerPermission } from './computer-permissions'
 import { openPreview } from './preview'
 import { emit } from './events'
 import type { ImageService } from './image-service'
@@ -39,6 +41,7 @@ interface Deps {
   images: ImageService
   remote: RemoteService
   mcp: McpService
+  browser: AgentBrowser
   dbPath: string
 }
 
@@ -104,7 +107,16 @@ function typedHandle<K extends RpcMethod>(
   })
 }
 
-export function registerIpc({ store, blobs, chat, images, remote, mcp, dbPath }: Deps): void {
+export function registerIpc({
+  store,
+  blobs,
+  chat,
+  images,
+  remote,
+  mcp,
+  browser,
+  dbPath,
+}: Deps): void {
   const getSettings = () => loadSettings(store)
 
   const handlers: { [K in RpcMethod]: (...args: Parameters<Rpc[K]>) => unknown } = {
@@ -264,6 +276,7 @@ export function registerIpc({ store, blobs, chat, images, remote, mcp, dbPath }:
     'conversations.update': (id, patch) => store.updateConversation(id, patch),
     'conversations.delete': (id) => {
       chat.stop(id)
+      chat.clearJobs(id)
       store.deleteConversation(id)
     },
 
@@ -280,6 +293,8 @@ export function registerIpc({ store, blobs, chat, images, remote, mcp, dbPath }:
     'chat.approve': ({ conversationId, toolCallId, decision }) =>
       chat.approve(conversationId, toolCallId, decision),
     'chat.approvals': () => chat.pendingApprovals(),
+    'chat.rewindFiles': ({ conversationId, messageId, dryRun }) =>
+      chat.rewindFiles(conversationId, messageId, !!dryRun),
 
     'remote.status': () => remote.status(),
     'remote.configure': (input) => remote.configure(input),
@@ -294,6 +309,10 @@ export function registerIpc({ store, blobs, chat, images, remote, mcp, dbPath }:
     'mcp.delete': (id) => mcp.remove(id),
 
     'preview.html': (html) => openPreview(html),
+
+    'browser.show': () => browser.show(),
+    'computer.permissions': () => computerPermissions(),
+    'computer.requestPermission': (kind) => requestComputerPermission(kind),
 
     'blobs.put': async ({ data, mime, name }) => {
       if (data.byteLength > 50 * 1024 * 1024) throw new Error('文件过大（上限 50MB）')

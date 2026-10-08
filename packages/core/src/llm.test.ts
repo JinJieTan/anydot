@@ -2,7 +2,15 @@ import { jsonSchema, tool } from 'ai'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { generateImages } from './images'
 import { createVideo, downloadVideo, waitForVideo } from './videos'
-import { defineTools, streamChat, toModelMessages, type ChatEvent, type ModelRef } from './llm'
+import {
+  defineTools,
+  nativeComputerTool,
+  withCacheBreakpoints,
+  streamChat,
+  toModelMessages,
+  type ChatEvent,
+  type ModelRef,
+} from './llm'
 import type { StoredMessage } from './messages'
 import { listModels } from './models'
 import { startMockServer, type MockServer } from './testing/mock-server'
@@ -105,6 +113,87 @@ describe('streamChat', () => {
   it('refuses image models', async () => {
     const { events } = await collect(streamChat({ model: ref('gpt-image-2'), messages: user('x') }))
     expect(events[0]).toMatchObject({ type: 'error' })
+  })
+})
+
+describe('prompt caching', () => {
+  const cacheOf = (m: { providerOptions?: unknown }) =>
+    (m.providerOptions as { anthropic?: { cacheControl?: unknown } } | undefined)?.anthropic
+      ?.cacheControl
+
+  it('marks the system prompt, the previous request end and the last message', () => {
+    const history = [
+      { role: 'user' as const, content: 'go' },
+      { role: 'assistant' as const, content: 'step 1' },
+      { role: 'user' as const, content: 'more' },
+      { role: 'assistant' as const, content: 'step 2' },
+      { role: 'user' as const, content: 'last' },
+    ]
+    const { messages, system } = withCacheBreakpoints(history, 'SYS')
+    expect(system).toMatchObject({ role: 'system', content: 'SYS' })
+    expect(cacheOf(system!)).toBeTruthy()
+    expect(messages.map((m) => !!cacheOf(m))).toEqual([false, false, true, false, true])
+    // The caller's history is left untouched.
+    expect(history.some((m) => 'providerOptions' in m)).toBe(false)
+  })
+
+  it('sends cache_control to Anthropic but not to OpenAI', async () => {
+    const before = server.requests.length
+    await collect(
+      streamChat({ model: ref('claude-sonnet-5-5'), system: 'SYS', messages: user('hi') }),
+    )
+    await collect(streamChat({ model: ref('gpt-5'), system: 'SYS', messages: user('hi') }))
+    const [claude, gpt] = server.requests.slice(before).map((r) => JSON.stringify(r.body))
+    expect(claude).toMatch(
+      /"system":\[\{"type":"text","text":"SYS","cache_control":\{"type":"ephemeral"\}\}\]/,
+    )
+    expect(claude).toMatch(/"text":"hi","cache_control":\{"type":"ephemeral"\}/)
+    expect(gpt).not.toMatch(/cache_control/)
+  })
+})
+
+describe('nativeComputerTool', () => {
+  const official = (modelId: string, baseUrl = 'https://api.anthropic.com'): ModelRef => ({
+    provider: { baseUrl, apiKey: 'k', type: 'anthropic' },
+    modelId,
+  })
+  const display = { width: 1280, height: 800 }
+
+  it('is used only on the official Anthropic API with a trained model', () => {
+    expect(nativeComputerTool(official('claude-opus-5-5'), display)).not.toBeNull()
+    expect(nativeComputerTool(official('claude-opus-4-5'), display)).not.toBeNull()
+    expect(
+      nativeComputerTool(official('claude-opus-5-5', 'https://relay.example'), display),
+    ).toBeNull()
+    expect(nativeComputerTool(official('claude-3-haiku'), display)).toBeNull()
+    expect(
+      nativeComputerTool(
+        {
+          ...official('gpt-5'),
+          provider: { baseUrl: 'https://api.openai.com', apiKey: 'k', type: 'openai' },
+        },
+        display,
+      ),
+    ).toBeNull()
+  })
+
+  it.each([
+    ['claude-opus-5-5', /"type":"computer_toolset_20260801"/],
+    ['claude-opus-4-5', /"type":"computer_20251124".*"display_width_px":1280/],
+  ])('%s sends the provider tool definition', async (modelId, pattern) => {
+    const native = nativeComputerTool(official(modelId), display)!
+    const before = server.requests.length
+    await collect(
+      streamChat({
+        model: ref(modelId),
+        messages: user('hi'),
+        tools: defineTools([
+          { name: 'computer', description: '', inputSchema: {}, provider: native },
+        ]),
+      }),
+    )
+    const req = server.requests.slice(before).at(-1)!
+    expect(JSON.stringify(req.body)).toMatch(pattern)
   })
 })
 
@@ -277,6 +366,44 @@ describe('toModelMessages', () => {
     })
     // reasoning is display-only and never replayed
     expect(out[1]).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] })
+  })
+
+  it('sends only the most recent tool screenshots', async () => {
+    const steps = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].flatMap((id) => [
+      msg('assistant', [{ type: 'tool_call', id, name: 'computer', input: {} }]),
+      msg('tool', [
+        {
+          type: 'tool_result',
+          id,
+          name: 'computer',
+          output: `shot ${id}`,
+          images: [{ blob: id, mime: 'image/jpeg' }],
+        },
+      ]),
+    ])
+    const loaded: string[] = []
+    const out = await toModelMessages(
+      steps,
+      async (sha) => (loaded.push(sha), new Uint8Array([1])),
+      // 7 screenshots, keep 2: the cut-off moves in steps of 4, so 4 are dropped.
+      { keepRecentImages: 2 },
+    )
+    const outputs = out.flatMap((m) =>
+      m.role === 'tool' ? m.content.map((c) => (c.type === 'tool-result' ? c.output : null)) : [],
+    )
+    expect(outputs[0]).toEqual({
+      type: 'text',
+      value: 'shot a\n[screenshot omitted to save context]',
+    })
+    expect(outputs[3]).toMatchObject({ type: 'text' })
+    expect(outputs[4]).toMatchObject({
+      type: 'content',
+      value: [
+        { type: 'text', text: 'shot e' },
+        { type: 'file', mediaType: 'image/jpeg' },
+      ],
+    })
+    expect(loaded.sort()).toEqual(['e', 'f', 'g'])
   })
 
   it('merges consecutive tool messages and patches interrupted calls', async () => {

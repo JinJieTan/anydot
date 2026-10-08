@@ -1,4 +1,6 @@
-import { createAnthropic } from '@ai-sdk/anthropic'
+import { anthropic as anthropicProvider, createAnthropic } from '@ai-sdk/anthropic'
+
+const anthropicTools = anthropicProvider.tools
 import { createOpenAI } from '@ai-sdk/openai'
 import {
   APICallError,
@@ -7,6 +9,9 @@ import {
   tool,
   type LanguageModel,
   type ModelMessage,
+  type SystemModelMessage,
+  type Tool,
+  type ToolResultPart,
   type ToolSet,
   type UserContent,
   type AssistantContent,
@@ -99,6 +104,40 @@ export interface ToModelMessagesOptions {
    */
   maxOldToolResultChars?: number
   keepRecentToolResults?: number
+  /**
+   * Only the most recent tool screenshots are sent (this many, up to 3 more
+   * so the cut-off moves in steps); older ones become a note. Default 3.
+   */
+  keepRecentImages?: number
+}
+
+export interface ToolImage {
+  /** Base64 or raw bytes. */
+  data: string | Uint8Array
+  mime: string
+}
+
+const IMAGE_OMITTED = '[screenshot omitted to save context]'
+
+/** A tool result as the model sees it: plain text, or text plus images. */
+export function toolOutput(
+  text: string,
+  isError: boolean,
+  images: ToolImage[] = [],
+): ToolResultPart['output'] {
+  if (!images.length)
+    return isError ? { type: 'error-text', value: text } : { type: 'text', value: text }
+  return {
+    type: 'content',
+    value: [
+      { type: 'text', text: isError ? `Error: ${text}` : text },
+      ...images.map((img) => ({
+        type: 'file' as const,
+        mediaType: img.mime,
+        data: { type: 'data' as const, data: img.data },
+      })),
+    ],
+  }
 }
 
 const INTERRUPTED = 'Tool execution was interrupted before it produced a result.'
@@ -125,6 +164,20 @@ export async function toModelMessages(
   let resultIndex = 0
   const keepRecent = opts.keepRecentToolResults ?? Infinity
   const maxOld = opts.maxOldToolResultChars ?? Infinity
+  // Move the truncation boundary in steps (of up to 10 results), not one by
+  // one: every move rewrites earlier history and invalidates the prompt cache.
+  const step = Math.max(1, Math.min(10, keepRecent))
+  const truncateBelow = Number.isFinite(keepRecent)
+    ? Math.floor(Math.max(0, totalResults - keepRecent) / step) * step
+    : 0
+  // Screenshots are large, so only the newest few are sent. Like truncation,
+  // the cut-off moves in steps (of 4) to keep the cached prefix stable.
+  const keepImages = opts.keepRecentImages ?? 3
+  const imageIds = path.flatMap((m) =>
+    m.parts.flatMap((p) => (p.type === 'tool_result' && p.images?.length ? [p.id] : [])),
+  )
+  const dropImages = Math.floor(Math.max(0, imageIds.length - keepImages) / 4) * 4
+  const withImages = new Set(imageIds.slice(dropImages))
 
   const flushPending = () => {
     if (!pending.size) return
@@ -191,24 +244,28 @@ export async function toModelMessages(
       }
       if (content.length) out.push({ role: 'assistant', content })
     } else if (msg.role === 'tool') {
-      const content = msg.parts
-        .filter((p): p is Extract<MessagePart, { type: 'tool_result' }> => p.type === 'tool_result')
-        .filter((p) => pending.delete(p.id)) // drop results whose call isn't in the path
-        .map((p) => {
-          const old = totalResults - ++resultIndex >= keepRecent
-          let value = typeof p.output === 'string' ? p.output : JSON.stringify(p.output)
-          if (old && value.length > maxOld) {
-            value = `${value.slice(0, maxOld)}\n…[truncated ${value.length - maxOld} chars]`
-          }
-          return {
-            type: 'tool-result' as const,
-            toolCallId: p.id,
-            toolName: p.name,
-            output: p.isError
-              ? { type: 'error-text' as const, value }
-              : { type: 'text' as const, value },
-          }
+      const content = []
+      for (const p of msg.parts) {
+        if (p.type !== 'tool_result' || !pending.delete(p.id)) continue // drop results whose call isn't in the path
+        const old = resultIndex++ < truncateBelow
+        let value = typeof p.output === 'string' ? p.output : JSON.stringify(p.output)
+        if (old && value.length > maxOld) {
+          value = `${value.slice(0, maxOld)}\n…[truncated ${value.length - maxOld} chars]`
+        }
+        const images: ToolImage[] = []
+        if (p.images?.length) {
+          if (withImages.has(p.id)) {
+            for (const img of p.images)
+              images.push({ data: await loadBlob(img.blob), mime: img.mime })
+          } else value += `\n${IMAGE_OMITTED}`
+        }
+        content.push({
+          type: 'tool-result' as const,
+          toolCallId: p.id,
+          toolName: p.name,
+          output: toolOutput(value, !!p.isError, images),
         })
+      }
       if (!content.length) continue
       const last = out.at(-1)
       if (last?.role === 'tool') last.content.push(...content)
@@ -229,6 +286,11 @@ export interface ToolDefinition {
   description: string
   /** JSON Schema for the tool input. */
   inputSchema: Record<string, unknown>
+  /**
+   * A provider-defined tool (e.g. Anthropic's computer tool) sent instead of
+   * the function definition above. Input arrives in the same shape.
+   */
+  provider?: Tool
 }
 
 /** Declare tools for the model without executing them (the agent loop does that). */
@@ -236,9 +298,39 @@ export function defineTools(defs: ToolDefinition[]): ToolSet {
   return Object.fromEntries(
     defs.map((d) => [
       d.name,
-      tool({ description: d.description, inputSchema: jsonSchema(d.inputSchema as never) }),
+      d.provider ??
+        tool({ description: d.description, inputSchema: jsonSchema(d.inputSchema as never) }),
     ]),
   )
+}
+
+/**
+ * Anthropic's own computer-use tool, when talking to the official API with a
+ * model trained for it. Gateways may not forward its beta header, so anything
+ * else gets the plain function tool (same input shape) instead.
+ */
+export function nativeComputerTool(
+  ref: ModelRef,
+  display: { width: number; height: number },
+): Tool | null {
+  const protocol = resolveProtocol(ref.modelId, ref.provider.type, ref.protocol ?? undefined)
+  if (protocol !== 'anthropic') return null
+  let host: string
+  try {
+    host = new URL(ref.provider.baseUrl).hostname
+  } catch {
+    return null
+  }
+  if (host !== 'api.anthropic.com') return null
+  const id = ref.modelId.toLowerCase()
+  const size = { displayWidthPx: display.width, displayHeightPx: display.height }
+  if (/^claude-(opus|sonnet|fable)-5|^claude-opus-4-8/.test(id))
+    return anthropicTools.computerToolset_20260801({ configs: { zoom: { enabled: false } } })
+  if (/^claude-(opus-4-[5-7]|sonnet-4-[6-9])/.test(id))
+    return anthropicTools.computer_20251124(size)
+  if (/^claude-(sonnet-4|opus-4|3-7-sonnet|haiku-4-5)/.test(id))
+    return anthropicTools.computer_20250124(size)
+  return null
 }
 
 /** Normalised streaming events, independent of the underlying protocol. */
@@ -276,10 +368,15 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
     return
   }
 
+  // Anthropic only caches up to explicit breakpoints; OpenAI caches prefixes automatically.
+  const prompt =
+    protocol === 'anthropic'
+      ? withCacheBreakpoints(opts.messages, opts.system || undefined)
+      : { messages: opts.messages, system: opts.system || undefined }
   const result = streamText({
     model,
-    messages: opts.messages,
-    system: opts.system || undefined,
+    messages: prompt.messages,
+    system: prompt.system,
     temperature: opts.temperature,
     maxOutputTokens: opts.maxOutputTokens,
     tools: opts.tools,
@@ -312,6 +409,7 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
               outputTokens: part.totalUsage.outputTokens,
               reasoningTokens: part.totalUsage.outputTokenDetails?.reasoningTokens,
               cacheReadTokens: part.totalUsage.inputTokenDetails?.cacheReadTokens,
+              cacheWriteTokens: part.totalUsage.inputTokenDetails?.cacheWriteTokens,
             },
           }
           break
@@ -322,6 +420,41 @@ export async function* streamChat(opts: StreamChatOptions): AsyncGenerator<ChatE
   } catch (err) {
     if (opts.signal?.aborted) return
     yield { type: 'error', message: errorMessage(err) }
+  }
+}
+
+const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const
+
+/**
+ * Mark Anthropic prompt-cache breakpoints, so each agent step re-reads the
+ * shared prefix at a fraction of the price instead of paying for it again:
+ *
+ * - the system prompt (cached together with the tool definitions before it);
+ * - the end of the previous request (the input before the newest assistant
+ *   turn), which is what the previous step wrote to the cache;
+ * - the end of this request, written for the next step.
+ *
+ * Uses block-level `cache_control`, which gateways forward more reliably than
+ * the newer request-level automatic caching. Never mutates `messages`; the
+ * system prompt comes back as a message so it can carry its breakpoint.
+ */
+export function withCacheBreakpoints(
+  messages: ModelMessage[],
+  system?: string,
+): { messages: ModelMessage[]; system?: SystemModelMessage } {
+  const out: ModelMessage[] = messages.map((m) => ({ ...m }) as ModelMessage)
+  const mark = (i: number) => {
+    const m = out[i]
+    if (!m || (Array.isArray(m.content) && !m.content.length) || m.content === '') return
+    out[i] = { ...m, providerOptions: { ...m.providerOptions, ...CACHE } } as ModelMessage
+  }
+  const last = out.length - 1
+  const lastAssistant = out.findLastIndex((m) => m.role === 'assistant')
+  mark(last)
+  if (lastAssistant > 0 && lastAssistant - 1 !== last) mark(lastAssistant - 1)
+  return {
+    messages: out,
+    system: system ? { role: 'system', content: system, providerOptions: CACHE } : undefined,
   }
 }
 

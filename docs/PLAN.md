@@ -190,7 +190,15 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] MCP 客户端（stdio / HTTP / SSE，配置加密保存，走同一套权限）
 - [x] 视频模型（OpenAI Videos API：创建 → 轮询 → 下载；应用重启后自动继续轮询）
 - [x] 长任务上下文自动压缩（摘要持久化，下一轮从摘要继续）
-- [ ] 浏览器工具（Playwright）、computer use（截屏 + 键鼠）—— 需要下载浏览器内核 / 申请系统权限，建议单独评估
+- [x] 内置浏览器工具：Electron 独立窗口（单独的持久化会话），页面快照 + 元素编号，点击 / 输入 / 选择 / 滚动 / 截图，无需下载浏览器内核
+- [x] Computer use（截屏 + 键鼠）：macOS 用 JXA + CoreGraphics，Windows 用 PowerShell + user32；官方 Anthropic 接口使用原生 computer 工具，其他模型用同构的函数工具；设置中默认关闭
+- [ ] Computer use 在 Windows 真机上验证；多显示器支持
+- [x] Claude 提示缓存：系统提示词、上一次请求末尾、本次末尾三个缓存断点；旧工具输出截断和旧截图删除按步长批量进行，避免频繁破坏缓存
+- [x] 命令沙箱（macOS Seatbelt）：只能写项目、临时目录和包管理器缓存，读不到 ~/.ssh 等凭据，改不了 git hooks；在沙箱外运行需要确认
+- [x] 后台命令：bash run_in_background + bash_output（可等待输出匹配）+ kill_job；按对话归属，删除对话或退出时结束
+- [x] 撤销文件改动：edit_file / write_file / generate_image 改动前备份，可在用户消息上撤销此后的改动（bash 的改动不追踪）
+- [x] 联网搜索：隐藏窗口加载 Bing（www → cn → Google 兜底）并提取结果，免 Key、所有模型可用
+- [ ] Windows 命令沙箱；原生搜索工具（Anthropic / OpenAI 服务端搜索）
 - [ ] Capacitor 打包 iOS / Android —— 需要 Xcode、Android SDK 和开发者账号
 - [ ] 自动更新 —— 需要先确定发布渠道（GitHub Releases 或自建下载站）
 - [ ] macOS 签名与公证、Windows 签名 —— 需要证书

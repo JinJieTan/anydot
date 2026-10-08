@@ -1,5 +1,7 @@
-import type { ApprovalDecision } from '@aitech/agent'
-import { toModelMessages, type MessagePart } from '@aitech/core'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import type { AgentEvent, ApprovalDecision, FileBackup } from '@aitech/agent'
+import { base64ToBytes, toModelMessages, type MessagePart, type ToolImage } from '@aitech/core'
 import {
   newestLeafFrom,
   pathToLeaf,
@@ -16,6 +18,7 @@ import type {
 } from '../shared/ipc'
 import type { AgentHost, RunHandle } from './agent-host'
 import type { BlobStore } from './blobs'
+import { computerPermissions } from './computer-permissions'
 import { decryptKey } from './secrets'
 
 const TITLE_MAX = 40
@@ -140,6 +143,11 @@ export class ChatService {
     })
   }
 
+  /** Stop the background jobs (dev servers etc.) a conversation's agent started. */
+  clearJobs(conversationId: string): void {
+    this.agent.clearJobs(conversationId)
+  }
+
   stopAll(): void {
     for (const id of this.runs.keys()) this.stop(id)
   }
@@ -183,6 +191,81 @@ export class ChatService {
     const pick = images.find((m) => m.id === this.settings().defaultImageModelId) ?? images[0]
     const creds = pick && this.credentials(pick.id)
     return creds ? { provider: creds.provider, modelId: creds.model.modelId } : undefined
+  }
+
+  private async saveImages(images: ToolImage[]) {
+    return Promise.all(
+      images.map(async (img) => ({
+        blob: await this.blobs.put(
+          typeof img.data === 'string' ? base64ToBytes(img.data) : img.data,
+          img.mime,
+        ),
+        mime: img.mime,
+      })),
+    )
+  }
+
+  private async saveBackups(backups: FileBackup[]) {
+    return Promise.all(
+      backups.map(async (b) => ({
+        path: b.path,
+        blob: b.data ? await this.blobs.put(b.data, 'application/octet-stream') : null,
+      })),
+    )
+  }
+
+  /**
+   * Undo the agent's file changes made after a user message on the active
+   * branch: every file goes back to its content at that point (files the
+   * agent created are deleted). `dryRun` only lists what would change.
+   * Changes made by shell commands aren't tracked and stay as they are.
+   */
+  async rewindFiles(
+    conversationId: string,
+    messageId: string,
+    dryRun: boolean,
+  ): Promise<{ path: string; action: 'restore' | 'delete' }[]> {
+    const conv = this.requireIdle(conversationId)
+    const path = conv.activeLeafId
+      ? pathToLeaf(this.store.listMessages(conversationId), conv.activeLeafId)
+      : []
+    const from = path.findIndex((m) => m.id === messageId)
+    if (from < 0) throw new Error('这条消息不在当前分支上')
+
+    // The first backup of each file after the message is its content at that point.
+    const targets = new Map<string, string | null>()
+    for (const m of path.slice(from))
+      for (const p of m.parts)
+        if (p.type === 'tool_result')
+          for (const b of p.backups ?? []) if (!targets.has(b.path)) targets.set(b.path, b.blob)
+
+    const plan = [...targets].map(([file, blob]) => ({
+      path: file,
+      blob,
+      action: blob ? ('restore' as const) : ('delete' as const),
+    }))
+    if (!dryRun) {
+      // Load every backup first, so a missing one (e.g. after an import) changes nothing.
+      const contents = await Promise.all(
+        plan.map((f) =>
+          f.blob
+            ? this.blobs.read(f.blob).catch(() => {
+                throw new Error(`找不到 ${f.path} 的备份，无法撤销`)
+              })
+            : null,
+        ),
+      )
+      for (const [i, f] of plan.entries()) {
+        const data = contents[i]
+        if (data) {
+          await mkdir(dirname(f.path), { recursive: true })
+          await writeFile(f.path, data)
+        } else {
+          await rm(f.path, { force: true })
+        }
+      }
+    }
+    return plan.map(({ path: p, action }) => ({ path: p, action }))
   }
 
   private reply(conversationId: string, user: MessageRow, origin: Origin = 'local'): void {
@@ -260,6 +343,7 @@ export class ChatService {
           thinking: creds.model.capabilities.includes('reasoning') ? conv.thinking : 'off',
           system: project ? undefined : (conv.systemPrompt ?? undefined),
           agent: project && {
+            conversationId,
             cwd: project.rootPath,
             // Tasks started from a phone never run fully unattended: commands still need a tap.
             mode:
@@ -270,85 +354,117 @@ export class ChatService {
             projectInstructions: project.instructions,
             userSystemPrompt: conv.systemPrompt,
             allowed: this.allowed.get(conversationId) ?? [],
+            sandbox: this.settings().sandbox,
+            browser: this.settings().browserTool,
+            computer: this.settings().computerUse,
+            computerBlocked: this.settings().computerUse ? computerBlocked() : undefined,
             imageModel: this.imageModel(),
           },
         }
 
-        run.handle = this.agent.run(request, {
-          onEvent: (e) => {
-            switch (e.type) {
-              case 'step-start': {
-                const m = addAssistant([], 'streaming')
-                current = { id: m.id, parts: [] }
-                break
-              }
-              case 'text':
-              case 'reasoning':
-                if (!current) break
-                appendDelta(current.parts, e.type, e.text)
-                this.emit({
-                  type: 'delta',
-                  conversationId,
-                  messageId: current.id,
-                  [e.type]: e.text,
-                })
-                break
-              case 'step-end': {
-                if (!current) break
-                const status = e.error ? 'error' : run.aborted ? 'aborted' : 'complete'
-                const m = this.store.finishMessage(current.id, {
-                  parts: e.parts,
-                  status,
-                  usage: e.usage,
-                  error: e.error ?? null,
-                })
-                this.emit({ type: 'done', conversationId, message: m })
-                current = null
-                break
-              }
-              case 'compacted': {
-                // Later requests start from this summary instead of the full history.
-                const m = this.store.addMessage({
-                  conversationId,
-                  parentId: leaf,
-                  role: 'system',
-                  parts: [{ type: 'summary', text: e.summary }],
-                })
-                leaf = m.id
-                this.emit({ type: 'message', conversationId, message: m })
-                break
-              }
-              case 'tool-result': {
-                const m = this.store.addMessage({
-                  conversationId,
-                  parentId: leaf,
-                  role: 'tool',
-                  parts: [
-                    {
-                      type: 'tool_result',
-                      id: e.toolCallId,
-                      name: e.name,
-                      output: e.output,
-                      isError: e.isError,
-                    },
-                  ],
-                })
-                leaf = m.id
-                this.emit({ type: 'message', conversationId, message: m })
-                break
-              }
-            }
+        const onEvent = (
+          e: AgentEvent,
+          extra?: {
+            images: { blob: string; mime: string }[]
+            backups: { path: string; blob: string | null }[]
           },
+        ) => {
+          switch (e.type) {
+            case 'step-start': {
+              const m = addAssistant([], 'streaming')
+              current = { id: m.id, parts: [] }
+              break
+            }
+            case 'text':
+            case 'reasoning':
+              if (!current) break
+              appendDelta(current.parts, e.type, e.text)
+              this.emit({
+                type: 'delta',
+                conversationId,
+                messageId: current.id,
+                [e.type]: e.text,
+              })
+              break
+            case 'step-end': {
+              if (!current) break
+              const status = e.error ? 'error' : run.aborted ? 'aborted' : 'complete'
+              const m = this.store.finishMessage(current.id, {
+                parts: e.parts,
+                status,
+                usage: e.usage,
+                error: e.error ?? null,
+              })
+              this.emit({ type: 'done', conversationId, message: m })
+              current = null
+              break
+            }
+            case 'compacted': {
+              // Later requests start from this summary instead of the full history.
+              const m = this.store.addMessage({
+                conversationId,
+                parentId: leaf,
+                role: 'system',
+                parts: [{ type: 'summary', text: e.summary }],
+              })
+              leaf = m.id
+              this.emit({ type: 'message', conversationId, message: m })
+              break
+            }
+            case 'tool-result': {
+              const m = this.store.addMessage({
+                conversationId,
+                parentId: leaf,
+                role: 'tool',
+                parts: [
+                  {
+                    type: 'tool_result',
+                    id: e.toolCallId,
+                    name: e.name,
+                    output: e.output,
+                    isError: e.isError,
+                    ...(extra?.images.length ? { images: extra.images } : {}),
+                    ...(extra?.backups.length ? { backups: extra.backups } : {}),
+                  },
+                ],
+              })
+              leaf = m.id
+              this.emit({ type: 'message', conversationId, message: m })
+              break
+            }
+          }
+        }
+
+        // Events are handled strictly in order, even while a screenshot is being saved.
+        let queue: Promise<void> = Promise.resolve()
+        const inOrder = (fn: () => void | Promise<void>) => {
+          queue = queue.then(fn).catch((err) => console.error('[chat] event failed', err))
+        }
+
+        run.handle = this.agent.run(request, {
+          onEvent: (e) =>
+            inOrder(async () => {
+              if (e.type === 'tool-result' && (e.images?.length || e.backups?.length)) {
+                const extra = {
+                  images: e.images?.length ? await this.saveImages(e.images).catch(() => []) : [],
+                  backups: e.backups?.length
+                    ? await this.saveBackups(e.backups).catch(() => [])
+                    : [],
+                }
+                onEvent({ ...e, images: undefined, backups: undefined }, extra)
+              } else onEvent(e)
+            }),
           onApproval: (request) => {
             const approval: ApprovalDTO = { ...request, conversationId }
             run.approvals.set(request.toolCallId, approval)
             this.emit({ type: 'approval', approval })
           },
-          onEnd: (res) => {
-            this.allowed.set(conversationId, res.allowed)
-            if (res.status === 'max-steps') addAssistant([], 'error', res.error)
-            end(res.status === 'error' ? res.error : undefined)
-          },
+          onEnd: (res) =>
+            inOrder(() => {
+              this.allowed.set(conversationId, res.allowed)
+              if (res.status === 'max-steps') addAssistant([], 'error', res.error)
+              end(res.status === 'error' ? res.error : undefined)
+            }),
         })
         // Stop requested while we were preparing.
         if (run.aborted) run.handle.abort()
@@ -358,6 +474,20 @@ export class ChatService {
       }
     })()
   }
+}
+
+/** A message for the model when macOS permissions for computer use are missing. */
+function computerBlocked(): string | undefined {
+  const p = computerPermissions()
+  const missing = [
+    !p.accessibility && '辅助功能（Accessibility）',
+    p.screen !== 'granted' && '录屏与系统录音（Screen Recording）',
+  ].filter(Boolean)
+  if (!missing.length) return undefined
+  return (
+    `Computer use is missing macOS permissions: ${missing.join('、')}. ` +
+    'Tell the user to grant them in aitech 设置 → Agent 能力, then try again.'
+  )
 }
 
 function appendDelta(parts: MessagePart[], type: 'text' | 'reasoning', chunk: string) {

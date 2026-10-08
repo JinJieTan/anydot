@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Pencil,
   RotateCcw,
+  Undo2,
 } from 'lucide-react'
 import { memo, useState } from 'react'
 import type { MessagePart } from '@aitech/core'
@@ -72,11 +73,14 @@ export const UserMessage = memo(function UserMessage({
   branch,
   busy,
   onEdit,
+  onRewind,
 }: {
   message: MessageDTO
   branch: BranchProps
   busy: boolean
   onEdit: (text: string, attachments: Attachment[]) => Promise<boolean>
+  /** Undo the agent's file changes after this message; absent when there are none. */
+  onRewind?: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const text = textOf(message.parts)
@@ -153,6 +157,17 @@ export const UserMessage = memo(function UserMessage({
         >
           <Pencil className="size-3.5" />
         </button>
+        {onRewind && (
+          <button
+            type="button"
+            className={actionBtn}
+            title="撤销这之后的文件改动"
+            disabled={busy}
+            onClick={onRewind}
+          >
+            <Undo2 className="size-3.5" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -262,6 +277,8 @@ export const AssistantMessage = memo(function AssistantMessage({
             {message.modelId}
             {message.usage &&
               ` · ${formatTokens(message.usage.inputTokens)} → ${formatTokens(message.usage.outputTokens)} tokens`}
+            {!!message.usage?.cacheReadTokens &&
+              `（缓存命中 ${formatTokens(message.usage.cacheReadTokens)}）`}
           </span>
         </div>
       )}

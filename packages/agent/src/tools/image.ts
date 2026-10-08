@@ -2,7 +2,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { generateImages } from '@aitech/core'
 import { resolvePath } from '../paths'
-import { str, type AgentTool } from './types'
+import { backupOf } from './fs'
+import { str, type AgentTool, type FileBackup } from './types'
 
 const EXT: Record<string, string> = {
   'image/png': 'png',
@@ -70,14 +71,16 @@ export const generateImageTool: AgentTool<{
     await mkdir(dir, { recursive: true })
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
     const saved: string[] = []
+    const backups: FileBackup[] = []
     for (const [i, img] of res.images.entries()) {
       const file = join(
         dir,
         `${slug(prompt)}-${stamp}${res.images.length > 1 ? `-${i + 1}` : ''}.${EXT[img.mime] ?? 'png'}`,
       )
+      backups.push((await backupOf(file)) ?? { path: file, data: null })
       await writeFile(file, img.data)
       saved.push(relative(ctx.cwd, file).split('\\').join('/'))
     }
-    return { output: `Saved ${saved.length} image(s):\n${saved.join('\n')}` }
+    return { output: `Saved ${saved.length} image(s):\n${saved.join('\n')}`, backups }
   },
 }

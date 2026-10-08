@@ -80,6 +80,12 @@ export interface Settings {
   defaultModelId: string | null
   defaultImageModelId: string | null
   defaultThinking: ThinkingLevel
+  /** Run agent commands in the OS sandbox (macOS). */
+  sandbox: boolean
+  /** Offer the built-in browser tools to project agents. */
+  browserTool: boolean
+  /** Offer the computer tool (screen + mouse + keyboard) to project agents. */
+  computerUse: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -87,6 +93,16 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultModelId: null,
   defaultImageModelId: null,
   defaultThinking: 'off',
+  sandbox: true,
+  browserTool: true,
+  computerUse: false,
+}
+
+/** OS permissions computer use depends on (macOS only; elsewhere always granted). */
+export interface ComputerPermissions {
+  supported: boolean
+  accessibility: boolean
+  screen: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
 }
 
 export interface RemoteDeviceDTO {
@@ -242,6 +258,15 @@ export interface Rpc {
     decision: ApprovalDecision
   }) => void
   'chat.approvals': () => ApprovalDTO[]
+  /**
+   * Undo the agent's file edits made after a user message (on the active
+   * branch). With dryRun, only lists the files that would change.
+   */
+  'chat.rewindFiles': (input: {
+    conversationId: string
+    messageId: string
+    dryRun?: boolean
+  }) => { path: string; action: 'restore' | 'delete' }[]
 
   'remote.status': () => RemoteStatusDTO
   'remote.configure': (input: {
@@ -263,6 +288,12 @@ export interface Rpc {
 
   /** Open model-generated HTML in an isolated preview window. */
   'preview.html': (html: string) => void
+
+  /** Bring the agent's built-in browser window to the front. */
+  'browser.show': () => void
+  'computer.permissions': () => ComputerPermissions
+  /** Ask the OS for a permission (prompts, or opens System Settings). */
+  'computer.requestPermission': (kind: 'accessibility' | 'screen') => ComputerPermissions
 
   'blobs.put': (input: { data: Uint8Array; mime: string; name: string }) => Attachment
   'blobs.saveAs': (input: { sha256: string; suggestedName: string }) => boolean
@@ -315,6 +346,7 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'chat.running': true,
   'chat.approve': true,
   'chat.approvals': true,
+  'chat.rewindFiles': true,
   'remote.status': true,
   'remote.configure': true,
   'remote.detect': true,
@@ -326,6 +358,9 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'mcp.save': true,
   'mcp.delete': true,
   'preview.html': true,
+  'browser.show': true,
+  'computer.permissions': true,
+  'computer.requestPermission': true,
   'blobs.put': true,
   'blobs.saveAs': true,
   'blobs.copyImage': true,
@@ -376,12 +411,22 @@ export interface AgentRunRequest {
   system?: string
   /** Present for project conversations: run as a coding agent. */
   agent?: {
+    /** Background jobs (dev servers etc.) belong to the conversation. */
+    conversationId: string
     cwd: string
     mode: PermissionMode
     projectName: string
     projectInstructions: string | null
     userSystemPrompt: string | null
     allowed: string[]
+    /** Run bash commands in the OS sandbox, where supported. */
+    sandbox: boolean
+    /** Offer the built-in browser tools. */
+    browser: boolean
+    /** Offer the computer tool. */
+    computer: boolean
+    /** Set when the computer tool can't work yet, e.g. OS permissions are missing. */
+    computerBlocked?: string
     imageModel?: {
       provider: { baseUrl: string; apiKey: string; type: ProviderType }
       modelId: string
@@ -395,12 +440,19 @@ export type AgentRequest =
   | { type: 'run.abort'; runId: string }
   | { type: 'run.approve'; runId: string; toolCallId: string; decision: ApprovalDecision }
   | { type: 'mcp.configure'; servers: McpServerConfig[] }
+  | { type: 'host.result'; id: string; result?: unknown; error?: string }
+  /** Stop a conversation's background jobs (it was deleted). */
+  | { type: 'jobs.clear'; conversationId: string }
+  /** Stop all background jobs and exit (app is quitting). */
+  | { type: 'shutdown' }
 
 export type AgentResponse =
   | { type: 'pong'; id: string; pid: number }
   | { type: 'mcp.status'; servers: McpServerStatus[] }
   | { type: 'run.event'; runId: string; event: AgentEvent }
   | { type: 'run.approval'; runId: string; request: ApprovalRequest }
+  /** The agent asks main to do something only main can, e.g. drive the browser window. */
+  | { type: 'host.call'; id: string; method: string; params: unknown }
   | {
       type: 'run.end'
       runId: string

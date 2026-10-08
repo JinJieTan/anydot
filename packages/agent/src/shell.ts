@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { sandboxSpawn } from './sandbox'
 
 export interface ShellInfo {
   /** Executable used to run commands. */
@@ -84,35 +85,70 @@ export function truncateOutput(text: string, max = MAX_OUTPUT): string {
   return `${text.slice(0, head)}\n\n…[${text.length - max} characters omitted]…\n\n${text.slice(-tail)}`
 }
 
+export interface SpawnOptions {
+  cwd: string
+  env: NodeJS.ProcessEnv
+  platform: NodeJS.Platform
+  /** Run inside the OS sandbox (see sandbox.ts). */
+  sandbox?: boolean
+}
+
+/**
+ * Start a shell command in its own process group, so `kill` takes down
+ * everything it started (dev servers spawn children of their own).
+ */
+export function spawnCommand(command: string, opts: SpawnOptions) {
+  const { shell, args } = shellFor(opts.platform, opts.env)
+  const target = opts.sandbox
+    ? sandboxSpawn(shell, [...args, command], { cwd: opts.cwd, home: opts.env.HOME })
+    : { file: shell, args: [...args, command] }
+  const child = spawn(target.file, target.args, {
+    cwd: opts.cwd,
+    env: {
+      ...opts.env,
+      // Never block on pagers or prompts; keep output plain.
+      PAGER: 'cat',
+      GIT_PAGER: 'cat',
+      GIT_TERMINAL_PROMPT: '0',
+      TERM: 'dumb',
+      NO_COLOR: '1',
+      CI: opts.env.CI ?? '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: opts.platform !== 'win32',
+    windowsHide: true,
+  })
+
+  const kill = (force = false) => {
+    if (child.exitCode !== null || child.signalCode !== null || !child.pid) return
+    if (opts.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+      return
+    }
+    try {
+      process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM')
+      if (!force)
+        setTimeout(() => {
+          try {
+            process.kill(-child.pid!, 'SIGKILL')
+          } catch {
+            // exited
+          }
+        }, 2000).unref()
+    } catch {
+      // exited
+    }
+  }
+  return { child, kill }
+}
+
 /** Run a shell command, killing the whole process tree on timeout or abort. */
 export function runCommand(
   command: string,
-  opts: {
-    cwd: string
-    env: NodeJS.ProcessEnv
-    platform: NodeJS.Platform
-    timeoutMs: number
-    signal: AbortSignal
-  },
+  opts: SpawnOptions & { timeoutMs: number; signal: AbortSignal },
 ): Promise<RunResult> {
-  const { shell, args } = shellFor(opts.platform, opts.env)
   return new Promise((resolve) => {
-    const child = spawn(shell, [...args, command], {
-      cwd: opts.cwd,
-      env: {
-        ...opts.env,
-        // Never block on pagers or prompts; keep output plain.
-        PAGER: 'cat',
-        GIT_PAGER: 'cat',
-        GIT_TERMINAL_PROMPT: '0',
-        TERM: 'dumb',
-        NO_COLOR: '1',
-        CI: opts.env.CI ?? '1',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: opts.platform !== 'win32',
-      windowsHide: true,
-    })
+    const { child, kill } = spawnCommand(command, opts)
 
     let output = ''
     let timedOut = false
@@ -125,25 +161,6 @@ export function runCommand(
     child.stdout.on('data', onData)
     child.stderr.on('data', onData)
 
-    const kill = () => {
-      if (child.exitCode !== null || !child.pid) return
-      if (opts.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
-      } else {
-        try {
-          process.kill(-child.pid, 'SIGTERM')
-          setTimeout(() => {
-            try {
-              process.kill(-child.pid!, 'SIGKILL')
-            } catch {
-              // exited
-            }
-          }, 2000)
-        } catch {
-          // exited
-        }
-      }
-    }
     const timer = setTimeout(() => {
       timedOut = true
       kill()

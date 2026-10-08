@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, matchesGlob, relative } from 'node:path'
 import { IGNORED_DIRS, resolvePath } from '../paths'
-import { str, ToolInputError, type AgentTool, type ToolContext } from './types'
+import { str, ToolInputError, type AgentTool, type FileBackup, type ToolContext } from './types'
 
 const MAX_READ_BYTES = 5 * 1024 * 1024
 const DEFAULT_LINES = 2000
@@ -91,6 +91,20 @@ export const readFileTool: AgentTool<{ path: string; offset?: number; limit?: nu
   },
 }
 
+/** Files larger than this aren't backed up (undo then leaves them alone). */
+const MAX_BACKUP = 5 * 1024 * 1024
+
+/** The file's current content, for undo; undefined if it is too large to keep. */
+export async function backupOf(abs: string): Promise<FileBackup | undefined> {
+  try {
+    const st = await stat(abs)
+    if (!st.isFile() || st.size > MAX_BACKUP) return undefined
+    return { path: abs, data: new Uint8Array(await readFile(abs)) }
+  } catch {
+    return { path: abs, data: null }
+  }
+}
+
 export const writeFileTool: AgentTool<{ path: string; content: string }> = {
   kind: 'write',
   definition: {
@@ -114,11 +128,15 @@ export const writeFileTool: AgentTool<{ path: string; content: string }> = {
     if (typeof input.content !== 'string') throw new ToolInputError('"content" must be a string')
     await assertFresh(abs, rel, ctx)
     const existed = (await mtimeOf(abs)) !== null
+    const backup = await backupOf(abs)
     await mkdir(dirname(abs), { recursive: true })
     await writeFile(abs, input.content, 'utf8')
     ctx.readFiles.set(abs, (await stat(abs)).mtimeMs)
     const n = input.content.split('\n').length
-    return { output: `${existed ? 'Overwrote' : 'Created'} ${rel} (${n} lines).` }
+    return {
+      output: `${existed ? 'Overwrote' : 'Created'} ${rel} (${n} lines).`,
+      backups: backup && [backup],
+    }
   },
 }
 
@@ -179,10 +197,12 @@ export const editFileTool: AgentTool<{
     const updated = input.replace_all
       ? original.split(oldStr).join(newStr)
       : original.replace(oldStr, () => newStr)
+    const backup = await backupOf(abs)
     await writeFile(abs, updated, 'utf8')
     ctx.readFiles.set(abs, (await stat(abs)).mtimeMs)
     return {
       output: `Edited ${rel}: ${input.replace_all ? `${count} replacements` : '1 replacement'}.`,
+      backups: backup && [backup],
     }
   },
 }

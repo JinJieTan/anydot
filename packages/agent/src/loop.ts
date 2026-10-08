@@ -3,14 +3,22 @@ import {
   errorMessage,
   streamChat,
   summaryPrompt,
+  toolOutput,
   type MessagePart,
   type ModelMessage,
   type ModelRef,
   type ThinkingLevel,
+  type ToolImage,
   type Usage,
 } from '@aitech/core'
 import { allowKey, decide, type PermissionMode } from './permissions'
-import { ToolInputError, type AgentTool, type ToolContext, type ToolResult } from './tools/types'
+import {
+  ToolInputError,
+  type AgentTool,
+  type FileBackup,
+  type ToolContext,
+  type ToolResult,
+} from './tools/types'
 
 export type ApprovalDecision = 'allow' | 'allow-always' | 'deny'
 
@@ -34,7 +42,15 @@ export type AgentEvent =
       finishReason: string | null
       error?: string
     }
-  | { type: 'tool-result'; toolCallId: string; name: string; output: string; isError: boolean }
+  | {
+      type: 'tool-result'
+      toolCallId: string
+      name: string
+      output: string
+      isError: boolean
+      images?: ToolImage[]
+      backups?: FileBackup[]
+    }
   /** History was summarised to stay within the context window. */
   | { type: 'compacted'; summary: string }
 
@@ -62,6 +78,44 @@ export interface RunAgentResult {
   status: 'done' | 'aborted' | 'error' | 'max-steps'
   error?: string
   steps: number
+}
+
+/** Screenshots are large; only the latest few stay in the context. */
+const KEEP_IMAGES = 3
+
+/**
+ * Replace all but the newest `keep` tool-result images with a short note.
+ * Only kicks in once there are `slack` extra images, so the (cache-busting)
+ * rewrite of earlier history happens every few screenshots, not every step.
+ */
+export function dropOldImages(history: ModelMessage[], keep: number, slack = 0) {
+  const count = history.reduce(
+    (n, m) =>
+      n +
+      (m.role === 'tool'
+        ? m.content.filter(
+            (p) =>
+              p.type === 'tool-result' &&
+              p.output.type === 'content' &&
+              p.output.value.some((v) => v.type === 'file'),
+          ).length
+        : 0),
+    0,
+  )
+  if (count <= keep + slack) return
+  let seen = 0
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i]!
+    if (msg.role !== 'tool') continue
+    for (const part of msg.content) {
+      if (part.type !== 'tool-result' || part.output.type !== 'content') continue
+      const value = part.output.value
+      if (!value.some((v) => v.type === 'file')) continue
+      if (++seen <= keep) continue
+      const text = value.flatMap((v) => (v.type === 'text' ? [v.text] : [])).join('\n')
+      part.output = { type: 'text', value: `${text}\n[screenshot omitted to save context]` }
+    }
+  }
 }
 
 const DENIED =
@@ -174,6 +228,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         name: call.name,
         output: output.output,
         isError: !!output.isError,
+        images: output.images,
+        backups: output.backups,
       })
     }
     history.push({
@@ -182,11 +238,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         type: 'tool-result' as const,
         toolCallId: r.toolCallId,
         toolName: r.toolName,
-        output: r.output.isError
-          ? { type: 'error-text' as const, value: r.output.output }
-          : { type: 'text' as const, value: r.output.output },
+        output: toolOutput(r.output.output, !!r.output.isError, r.output.images),
       })),
     })
+    dropOldImages(history, KEEP_IMAGES, 3)
 
     if (
       usage?.inputTokens &&
@@ -230,7 +285,12 @@ async function executeCall(
     summary = call.name
   }
 
-  const decision = decide(tool, input, { cwd: ctx.cwd, mode: opts.mode, allowed })
+  const decision = decide(tool, input, {
+    cwd: ctx.cwd,
+    mode: opts.mode,
+    allowed,
+    sandboxed: !!ctx.sandbox,
+  })
   if (decision.action === 'ask') {
     const answer = await opts.approve({
       toolCallId: call.id,

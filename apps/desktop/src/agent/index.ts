@@ -7,16 +7,22 @@
  */
 import {
   ALL_TOOLS,
+  BROWSER_TOOLS,
   buildSystemPrompt,
+  Computer,
+  computerTool,
+  JobManager,
   loadProjectInstructions,
   McpManager,
+  nativeDriver,
   resolveShellEnv,
+  sandboxAvailable,
   runAgent,
   shellFor,
   toolsForMode,
   type ApprovalDecision,
 } from '@aitech/agent'
-import type { ModelMessage } from '@aitech/core'
+import { newId, nativeComputerTool, type ModelMessage, type ModelRef } from '@aitech/core'
 import type { AgentRequest, AgentResponse, AgentRunRequest } from '../shared/ipc'
 
 // Resolve once, in the background; the first command waits for it if needed.
@@ -29,9 +35,52 @@ interface Run {
 
 const runs = new Map<string, Run>()
 const mcp = new McpManager(() => shellEnv)
+const jobs = new JobManager()
+
+// Background jobs run in their own process groups and would outlive us.
+process.on('exit', () => jobs.killAll())
+for (const signal of ['SIGTERM', 'SIGINT'] as const)
+  process.on(signal, () => {
+    jobs.killAll()
+    process.exit(0)
+  })
 
 function send(res: AgentResponse) {
   process.parentPort.postMessage(res)
+}
+
+const hostCalls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+
+/** Ask main to do something only it can (e.g. drive the browser window). */
+function host(method: string, params: unknown): Promise<unknown> {
+  const id = newId()
+  return new Promise((resolve, reject) => {
+    hostCalls.set(id, { resolve, reject })
+    send({ type: 'host.call', id, method, params })
+  })
+}
+
+// Created on first use and kept, so the Windows helper process is reused.
+let computer: Computer | null | undefined
+function getComputer(): Computer | null {
+  if (computer === undefined) {
+    const driver = nativeDriver(process.platform)
+    computer = driver ? new Computer(driver) : null
+  }
+  return computer
+}
+
+/** The computer tool, provider-native when the model and endpoint support it. */
+async function buildComputerTool(model: ModelRef) {
+  const pc = getComputer()
+  if (!pc) return null
+  let native = null
+  try {
+    native = nativeComputerTool(model, await pc.display())
+  } catch {
+    // Screen size unavailable (permissions?): the function tool still works and reports errors.
+  }
+  return computerTool(native)
 }
 
 async function start(runId: string, req: AgentRunRequest) {
@@ -44,12 +93,23 @@ async function start(runId: string, req: AgentRunRequest) {
     let tools: typeof ALL_TOOLS = []
     let cwd = process.cwd()
     let env: NodeJS.ProcessEnv = process.env
+    const sandbox = !!req.agent?.sandbox && sandboxAvailable()
 
     if (req.agent) {
       const a = req.agent
       cwd = a.cwd
       env = await shellEnv
-      tools = toolsForMode([...ALL_TOOLS, ...mcp.tools()], a.mode)
+      const model = { provider: req.provider, modelId: req.modelId, protocol: req.protocol }
+      const pcTool = a.computer ? await buildComputerTool(model) : null
+      tools = toolsForMode(
+        [
+          ...ALL_TOOLS,
+          ...(a.browser ? BROWSER_TOOLS : []),
+          ...(pcTool ? [pcTool as unknown as (typeof ALL_TOOLS)[number]] : []),
+          ...mcp.tools(),
+        ],
+        a.mode,
+      )
       system = buildSystemPrompt({
         cwd,
         platform: process.platform,
@@ -59,6 +119,9 @@ async function start(runId: string, req: AgentRunRequest) {
         projectInstructions: a.projectInstructions ?? undefined,
         fileInstructions: await loadProjectInstructions(cwd),
         userSystemPrompt: a.userSystemPrompt ?? undefined,
+        sandbox,
+        browser: tools.some((t) => t.kind === 'browser'),
+        computer: tools.some((t) => t.kind === 'computer'),
       })
     }
 
@@ -79,6 +142,11 @@ async function start(runId: string, req: AgentRunRequest) {
         signal: run.controller.signal,
         readFiles: new Map(),
         imageModel: req.agent?.imageModel,
+        host,
+        computer: req.agent?.computer ? (getComputer() ?? undefined) : undefined,
+        computerBlocked: req.agent?.computerBlocked,
+        sandbox,
+        jobs: req.agent ? jobs.scope(req.agent.conversationId) : undefined,
       },
       onEvent: (event) => send({ type: 'run.event', runId, event }),
       approve: (request) =>
@@ -115,6 +183,21 @@ process.parentPort.on('message', (event) => {
       break
     case 'run.start':
       void start(msg.runId, msg.request)
+      break
+    case 'host.result': {
+      const call = hostCalls.get(msg.id)
+      if (!call) break
+      hostCalls.delete(msg.id)
+      if (msg.error !== undefined) call.reject(new Error(msg.error))
+      else call.resolve(msg.result)
+      break
+    }
+    case 'shutdown':
+      jobs.killAll()
+      process.exit(0)
+      break
+    case 'jobs.clear':
+      jobs.clear(msg.conversationId)
       break
     case 'mcp.configure':
       void mcp.configure(msg.servers).then((servers) => send({ type: 'mcp.status', servers }))

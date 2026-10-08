@@ -27,6 +27,12 @@ export function buildSystemPrompt(opts: {
   projectInstructions?: string
   fileInstructions?: string
   userSystemPrompt?: string
+  /** Built-in browser tools are offered. */
+  browser?: boolean
+  /** The computer tool (screen + mouse + keyboard) is offered. */
+  computer?: boolean
+  /** bash commands run in the OS sandbox. */
+  sandbox?: boolean
   now?: Date
 }): string {
   const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
@@ -50,6 +56,35 @@ export function buildSystemPrompt(opts: {
     '- Never reveal or print secrets such as API keys found in files or the environment.',
     '- Be concise. Reply in the language the user writes in. When done, summarise what changed and how it was verified.',
   ]
+  if (opts.sandbox) {
+    lines.push(
+      '',
+      '# Sandbox',
+      '- bash commands run in a sandbox: they can read files and use the network, but can only write inside the project, temp dirs and package-manager caches, and cannot read credentials like ~/.ssh.',
+      '- If a command fails because of the sandbox ("Operation not permitted"), rerun it with unsandboxed: true and briefly say why; the user has to approve it.',
+    )
+  }
+  if (opts.browser) {
+    lines.push(
+      '',
+      '# Built-in browser',
+      '- The browser_* tools drive a browser window inside the app that the user can see; logins persist between runs.',
+      '- Use them for interactive pages, JavaScript-heavy sites and checking a local dev server. For plain reading, web_fetch is cheaper.',
+      '- Act on elements by the refs from the latest snapshot; take a new snapshot when the page changes.',
+      '- Never type passwords, payment details or other secrets. If a page needs a login, ask the user to sign in in the browser window, then continue.',
+      '- Before anything irreversible or outward-facing (buying, sending, posting, deleting), stop and ask the user.',
+    )
+  }
+  if (opts.computer) {
+    lines.push(
+      '',
+      '# Computer use',
+      "- The computer tool sees the user's real main display and moves their real mouse and keyboard. Take a screenshot first, and check the result after each step.",
+      '- Prefer files, bash and the browser tools when they can do the job; use the computer tool for native apps and things only visible on screen.',
+      '- Never enter passwords, payment details or other secrets, and never change system or security settings. Ask the user to do those.',
+      '- Before anything irreversible or outward-facing (sending, purchasing, deleting), stop and ask the user.',
+    )
+  }
   if (opts.mode === 'plan') {
     lines.push(
       '',

@@ -36,7 +36,8 @@ export const webFetchTool: AgentTool<{ url: string }> = {
   definition: {
     name: 'web_fetch',
     description:
-      'Fetch a web page or API over HTTP(S) and return it as text (HTML is converted to plain text).',
+      'Fetch a web page or API over HTTP(S) and return it as text (HTML is converted to plain text). ' +
+      'To find pages, use web_search first.',
     inputSchema: {
       type: 'object',
       properties: { url: { type: 'string', description: 'http(s) URL' } },

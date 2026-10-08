@@ -113,15 +113,19 @@ export function allowKey(tool: AgentTool<never>, input: Record<string, unknown>)
       .trim()
       .split(/\s+/)
       .slice(0, 2)
-    return `${tool.definition.name}:${words.join(' ')}`
+    // Running outside the sandbox is approved separately from the same command inside it.
+    const prefix = input.unsandboxed ? `${tool.definition.name}!` : tool.definition.name
+    return `${prefix}:${words.join(' ')}`
   }
+  // One approval covers the whole browser / computer toolset for the session.
+  if (tool.kind === 'browser' || tool.kind === 'computer') return tool.kind
   return tool.definition.name
 }
 
 export function decide(
   tool: AgentTool<never>,
   input: Record<string, unknown>,
-  ctx: { cwd: string; mode: PermissionMode; allowed: Set<string> },
+  ctx: { cwd: string; mode: PermissionMode; allowed: Set<string>; sandboxed?: boolean },
 ): Decision {
   const t = tool as AgentTool<Record<string, unknown>>
   const outside = (t.paths?.(input) ?? []).filter((p) => !resolvePath(ctx.cwd, p).inside)
@@ -139,6 +143,12 @@ export function decide(
     const danger = dangerOf(command)
     // Dangerous commands always ask, even in auto mode or after "always allow".
     if (danger) return { action: 'ask', reason: `可能有风险的命令：${danger}`, danger: true }
+    // Leaving the sandbox always asks, even in auto mode.
+    if (ctx.sandboxed && input.unsandboxed) {
+      return ctx.allowed.has(allowKey(tool, input))
+        ? { action: 'allow' }
+        : { action: 'ask', reason: '在沙箱外运行命令（不受目录限制）', danger: false }
+    }
     if (isSafeCommand(command)) return { action: 'allow' }
     if (ctx.mode === 'auto' || ctx.allowed.has(allowKey(tool, input))) return { action: 'allow' }
     return { action: 'ask', reason: '运行命令', danger: false }
@@ -160,6 +170,14 @@ export function decide(
       return ctx.mode === 'auto'
         ? { action: 'allow' }
         : { action: 'ask', reason: '调用生图模型（会产生费用）', danger: false }
+    case 'browser':
+      return ctx.mode === 'auto'
+        ? { action: 'allow' }
+        : { action: 'ask', reason: '操作内置浏览器', danger: false }
+    case 'computer':
+      return ctx.mode === 'auto'
+        ? { action: 'allow' }
+        : { action: 'ask', reason: '查看屏幕并控制鼠标键盘', danger: false }
   }
   return { action: 'ask', reason: '执行操作', danger: false }
 }

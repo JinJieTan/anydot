@@ -2,10 +2,13 @@ import { mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, protocol, shell } from 'electron'
+import type { BrowserCommand } from '@aitech/agent'
 import { newId } from '@aitech/core'
 import { openDatabase, Store } from '@aitech/db'
 import { AgentHost } from './agent-host'
 import { BlobStore } from './blobs'
+import { AgentBrowser } from './browser'
+import { WebSearch } from './search'
 import { ChatService } from './chat-service'
 import { emit } from './events'
 import { ImageService } from './image-service'
@@ -24,10 +27,21 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const agent = new AgentHost()
+const browser = new AgentBrowser()
+const webSearch = new WebSearch()
+agent.onHostCall = (method, params) => {
+  if (method === 'browser') return browser.exec(params as BrowserCommand)
+  if (method === 'search') {
+    const { query, limit } = params as { query: string; limit: number }
+    return webSearch.search(query, limit)
+  }
+  return Promise.reject(new Error(`unknown host method ${method}`))
+}
 let store: Store | null = null
 let chat: ChatService | null = null
 let images: ImageService | null = null
 let remote: RemoteService | null = null
+let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -50,6 +64,15 @@ function createWindow(): void {
   })
 
   win.once('ready-to-show', () => win.show())
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+    // The agent's hidden windows shouldn't keep the app alive on their own.
+    if (process.platform !== 'darwin') {
+      browser.close()
+      webSearch.close()
+    }
+  })
 
   // Open external links in the system browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -87,7 +110,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = mainWindow
     if (win) {
       if (win.isMinimized()) win.restore()
       win.focus()
@@ -162,12 +185,12 @@ if (!app.requestSingleInstanceLock()) {
       (status) => emit('remote', status),
       (req) => emit('remote-pair', req),
     )
-    registerIpc({ store: s, blobs, chat, images, remote, mcp, dbPath: opened.dbPath })
+    registerIpc({ store: s, blobs, chat, images, remote, mcp, browser, dbPath: opened.dbPath })
     createWindow()
     void remote.restart()
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (!mainWindow) createWindow()
     })
   })
 
@@ -180,6 +203,8 @@ if (!app.requestSingleInstanceLock()) {
     images?.stopAll()
     remote?.stop()
     agent.stop()
+    browser.close()
+    webSearch.close()
     store?.db.close()
   })
 }

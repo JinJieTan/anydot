@@ -27,6 +27,8 @@ export class AgentHost {
   /** Called after every (re)start, so state like MCP config can be re-sent. */
   onStart: (() => void) | null = null
   onMcpStatus: ((servers: import('../shared/ipc').McpServerStatus[]) => void) | null = null
+  /** Serves the agent's host calls (e.g. the built-in browser). */
+  onHostCall: ((method: string, params: unknown) => Promise<unknown>) | null = null
 
   start(): void {
     this.stopping = false
@@ -58,8 +60,12 @@ export class AgentHost {
 
   stop(): void {
     this.stopping = true
-    this.child?.kill()
+    const child = this.child
     this.child = null
+    if (!child) return
+    // Let it stop its background jobs first (Windows can't signal it to), then make sure.
+    child.postMessage({ type: 'shutdown' } satisfies AgentRequest)
+    setTimeout(() => child.kill(), 1000).unref()
   }
 
   private post(msg: AgentRequest) {
@@ -86,7 +92,33 @@ export class AgentHost {
         this.runs.get(res.runId)?.onEnd(res)
         this.runs.delete(res.runId)
         break
+      case 'host.call': {
+        const handler = this.onHostCall
+        const reply = (msg: AgentRequest) => {
+          // The process may have restarted meanwhile; the stale call is moot.
+          if (this.child) this.post(msg)
+        }
+        if (!handler) {
+          reply({ type: 'host.result', id: res.id, error: 'host calls are not supported' })
+          break
+        }
+        handler(res.method, res.params).then(
+          (result) => reply({ type: 'host.result', id: res.id, result }),
+          (err: unknown) =>
+            reply({
+              type: 'host.result',
+              id: res.id,
+              error: err instanceof Error ? err.message : String(err),
+            }),
+        )
+        break
+      }
     }
+  }
+
+  /** Stop a conversation's background jobs. */
+  clearJobs(conversationId: string) {
+    if (this.child) this.post({ type: 'jobs.clear', conversationId })
   }
 
   configureMcp(servers: import('@aitech/agent').McpServerConfig[]) {

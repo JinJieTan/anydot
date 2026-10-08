@@ -305,12 +305,56 @@ function MessageList({
       for (const t of path.slice(i + 1)) {
         if (t.role !== 'tool') break
         for (const p of t.parts)
-          if (p.type === 'tool_result') results.set(p.id, { output: p.output, isError: p.isError })
+          if (p.type === 'tool_result')
+            results.set(p.id, { output: p.output, isError: p.isError, images: p.images })
       }
       map.set(m.id, results)
     })
     return map
   }, [path])
+
+  // User messages after which the agent changed files that can be put back.
+  const undoable = useMemo(() => {
+    const ids = new Set<string>()
+    let after = false
+    for (const m of [...path].reverse()) {
+      if (m.parts.some((p) => p.type === 'tool_result' && p.backups?.length)) after = true
+      if (m.role === 'user' && after) ids.add(m.id)
+    }
+    return ids
+  }, [path])
+
+  const { projects, notify } = useApp()
+  const root = projects.find((p) => p.id === conversation.projectId)?.rootPath
+  const [rewind, setRewind] = useState<{
+    messageId: string
+    files: { path: string; action: 'restore' | 'delete' }[]
+  } | null>(null)
+  const [rewinding, setRewinding] = useState(false)
+  const rel = (file: string) =>
+    root && file.startsWith(root) ? file.slice(root.length).replace(/^[\\/]/, '') : file
+
+  const startRewind = async (messageId: string) => {
+    const files = await attempt(() =>
+      invoke('chat.rewindFiles', { conversationId: conversation.id, messageId, dryRun: true }),
+    )
+    if (!files) return
+    if (!files.length) notify('这之后没有可撤销的文件改动')
+    else setRewind({ messageId, files })
+  }
+
+  const confirmRewind = async () => {
+    if (!rewind) return
+    setRewinding(true)
+    const done = await attempt(() =>
+      invoke('chat.rewindFiles', { conversationId: conversation.id, messageId: rewind.messageId }),
+    )
+    setRewinding(false)
+    if (done) {
+      setRewind(null)
+      notify(`已撤销 ${done.length} 个文件的改动`)
+    }
+  }
 
   // Follow the stream only while the user is at the bottom.
   const onScroll = () => {
@@ -366,6 +410,7 @@ function MessageList({
                   message={m}
                   branch={branch}
                   busy={busy}
+                  onRewind={undoable.has(m.id) ? () => void startRewind(m.id) : undefined}
                   onEdit={(text, attachments) =>
                     succeeded(() =>
                       invoke('chat.edit', {
@@ -407,6 +452,35 @@ function MessageList({
           )
         })}
       </div>
+      <Modal open={!!rewind} onClose={() => setRewind(null)} title="撤销文件改动">
+        {rewind && (
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-fg-soft">
+              以下文件会恢复到发送这条消息时的状态，Agent
+              新建的文件会被删除。之后你自己对这些文件的修改也会被覆盖；
+              通过命令（bash）产生的改动不会撤销。对话记录保持不变。
+            </p>
+            <ul className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-line p-2 font-mono text-[12.5px]">
+              {rewind.files.map((f) => (
+                <li key={f.path} className="flex gap-2">
+                  <span className={f.action === 'delete' ? 'text-red-600' : 'text-fg-faint'}>
+                    {f.action === 'delete' ? '删除' : '恢复'}
+                  </span>
+                  <span className="min-w-0 truncate">{rel(f.path)}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRewind(null)}>
+                取消
+              </Button>
+              <Button variant="danger" loading={rewinding} onClick={() => void confirmRewind()}>
+                撤销 {rewind.files.length} 个文件
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

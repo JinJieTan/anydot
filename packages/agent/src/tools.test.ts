@@ -109,6 +109,27 @@ describe('file tools', () => {
   })
 })
 
+describe('undo backups', () => {
+  it('records the previous content of edited and overwritten files', async () => {
+    writeFileSync(join(dir, 'a.txt'), 'one\n')
+    await readFileTool.run({ path: 'a.txt' }, ctx)
+    const edit = await editFileTool.run(
+      { path: 'a.txt', old_string: 'one', new_string: 'two' },
+      ctx,
+    )
+    expect(edit.backups).toEqual([
+      { path: join(dir, 'a.txt'), data: new TextEncoder().encode('one\n') },
+    ])
+    const write = await writeFileTool.run({ path: 'a.txt', content: 'three' }, ctx)
+    expect(new TextDecoder().decode(write.backups![0]!.data!)).toBe('two\n')
+  })
+
+  it('records that a new file did not exist', async () => {
+    const r = await writeFileTool.run({ path: 'new/b.txt', content: 'x' }, ctx)
+    expect(r.backups).toEqual([{ path: join(dir, 'new', 'b.txt'), data: null }])
+  })
+})
+
 describe('bash', () => {
   it('runs in the project root and reports exit codes', async () => {
     const ok = await bashTool.run(

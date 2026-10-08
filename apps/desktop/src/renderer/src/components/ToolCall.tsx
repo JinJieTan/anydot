@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import {
   AlertTriangle,
+  AppWindow,
   Check,
   ChevronRight,
   Circle,
@@ -13,6 +14,7 @@ import {
   ImageIcon,
   ListTodo,
   Loader2,
+  Monitor,
   Search,
   ShieldQuestion,
   Terminal,
@@ -20,13 +22,14 @@ import {
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { ApprovalDecision, ApprovalDTO } from '../../../shared/ipc'
-import { invoke } from '../lib/api'
+import { blobUrl, invoke } from '../lib/api'
 import { attempt } from '../store/app'
 import { Button } from './ui'
 
 export interface ToolResultPart {
   output: unknown
   isError?: boolean
+  images?: { blob: string; mime: string }[]
 }
 
 type Input = Record<string, unknown>
@@ -42,13 +45,95 @@ const META: Record<string, { icon: ReactNode; summary: (i: Input) => string }> =
   grep: { icon: <Search className="size-3.5" />, summary: (i) => `搜索 “${s(i.pattern)}”` },
   edit_file: { icon: <FilePen className="size-3.5" />, summary: (i) => `编辑 ${s(i.path)}` },
   write_file: { icon: <FilePlus className="size-3.5" />, summary: (i) => `写入 ${s(i.path)}` },
-  bash: { icon: <Terminal className="size-3.5" />, summary: (i) => s(i.command) },
+  bash: {
+    icon: <Terminal className="size-3.5" />,
+    summary: (i) =>
+      `${i.unsandboxed ? '[沙箱外] ' : ''}${i.run_in_background ? '[后台] ' : ''}${s(i.command)}`,
+  },
+  bash_output: {
+    icon: <Terminal className="size-3.5" />,
+    summary: (i) =>
+      i.job_id
+        ? `读取 ${s(i.job_id)} 的输出${i.until ? `，等待 “${s(i.until)}”` : ''}`
+        : '查看后台任务',
+  },
+  kill_job: { icon: <Terminal className="size-3.5" />, summary: (i) => `停止 ${s(i.job_id)}` },
   web_fetch: { icon: <Globe className="size-3.5" />, summary: (i) => `访问 ${s(i.url)}` },
+  web_search: { icon: <Search className="size-3.5" />, summary: (i) => `搜索 “${s(i.query)}”` },
   generate_image: {
     icon: <ImageIcon className="size-3.5" />,
     summary: (i) => `生成图片：${s(i.prompt).slice(0, 60)}`,
   },
   todo_write: { icon: <ListTodo className="size-3.5" />, summary: () => '任务列表' },
+  browser_navigate: {
+    icon: <AppWindow className="size-3.5" />,
+    summary: (i) => `打开 ${s(i.url)}`,
+  },
+  browser_snapshot: { icon: <AppWindow className="size-3.5" />, summary: () => '读取页面' },
+  browser_click: { icon: <AppWindow className="size-3.5" />, summary: (i) => `点击 ${s(i.ref)}` },
+  browser_type: {
+    icon: <AppWindow className="size-3.5" />,
+    summary: (i) => `在 ${s(i.ref)} 输入 “${s(i.text).slice(0, 40)}”`,
+  },
+  browser_select_option: {
+    icon: <AppWindow className="size-3.5" />,
+    summary: (i) => `在 ${s(i.ref)} 选择 “${s(i.value)}”`,
+  },
+  browser_press_key: {
+    icon: <AppWindow className="size-3.5" />,
+    summary: (i) => `按键 ${s(i.key)}`,
+  },
+  browser_scroll: {
+    icon: <AppWindow className="size-3.5" />,
+    summary: (i) => (i.direction === 'up' ? '向上滚动' : '向下滚动'),
+  },
+  browser_back: { icon: <AppWindow className="size-3.5" />, summary: () => '后退' },
+  browser_screenshot: { icon: <AppWindow className="size-3.5" />, summary: () => '网页截图' },
+  computer: { icon: <Monitor className="size-3.5" />, summary: (i) => computerSummary(i) },
+}
+
+function computerSummary(i: Input): string {
+  const at = Array.isArray(i.coordinate) ? ` (${i.coordinate.join(', ')})` : ''
+  switch (i.action) {
+    case 'screenshot':
+      return '截屏'
+    case 'left_click':
+      return `点击${at}`
+    case 'double_click':
+      return `双击${at}`
+    case 'right_click':
+      return `右键点击${at}`
+    case 'type':
+      return `输入 “${s(i.text).slice(0, 40)}”`
+    case 'key':
+      return `按键 ${s(i.text)}`
+    case 'scroll':
+      return `滚动${at}`
+    case 'mouse_move':
+      return `移动鼠标${at}`
+    case 'left_click_drag':
+      return `拖动到${at}`
+    case 'wait':
+      return '等待'
+    default:
+      return `电脑操作 ${s(i.action)}`
+  }
+}
+
+function Screenshots({ images }: { images: { blob: string; mime: string }[] }) {
+  return (
+    <div className="flex flex-wrap gap-2 border-t border-line p-2">
+      {images.map((img) => (
+        <a key={img.blob} href={blobUrl(img.blob)} target="_blank" rel="noreferrer">
+          <img
+            src={blobUrl(img.blob)}
+            alt="截图"
+            className="max-h-64 rounded-md border border-line object-contain"
+          />
+        </a>
+      ))}
+    </div>
+  )
 }
 
 export function toolSummary(name: string, input: unknown): string {
@@ -212,6 +297,7 @@ export function ToolCall({
               <Pre>{s(result.output)}</Pre>
             </div>
           )}
+          {result?.images?.length ? <Screenshots images={result.images} /> : null}
         </div>
       )}
 

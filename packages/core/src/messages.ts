@@ -8,7 +8,17 @@ export type MessagePart =
   | { type: 'image'; blob: string; mime: string; name?: string }
   | { type: 'file'; blob: string; mime: string; name: string }
   | { type: 'tool_call'; id: string; name: string; input: unknown }
-  | { type: 'tool_result'; id: string; name: string; output: unknown; isError?: boolean }
+  | {
+      type: 'tool_result'
+      id: string
+      name: string
+      output: unknown
+      isError?: boolean
+      /** Screenshots the tool returned, stored as blobs. */
+      images?: { blob: string; mime: string }[]
+      /** Files before this call changed them (blob null: it didn't exist), for undo. */
+      backups?: { path: string; blob: string | null }[]
+    }
   /** Compacted history: everything before this message is replaced by `text`. */
   | { type: 'summary'; text: string }
 
@@ -33,6 +43,8 @@ export interface Usage {
   outputTokens?: number
   reasoningTokens?: number
   cacheReadTokens?: number
+  /** Tokens written to the prompt cache (Anthropic). */
+  cacheWriteTokens?: number
 }
 
 export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high'

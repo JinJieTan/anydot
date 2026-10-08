@@ -88,6 +88,39 @@ describe('decide', () => {
 
   it('plan mode offers only read-only tools', () => {
     const names = toolsForMode(ALL_TOOLS, 'plan').map((t) => t.definition.name)
-    expect(names).toEqual(['read_file', 'list_files', 'grep', 'web_fetch', 'todo_write'])
+    expect(names).toEqual([
+      'read_file',
+      'list_files',
+      'grep',
+      'bash_output',
+      'kill_job',
+      'web_search',
+      'web_fetch',
+      'todo_write',
+    ])
+  })
+})
+
+describe('browser and computer tools', () => {
+  const browser = T({ kind: 'browser', definition: { name: 'browser_click' } })
+  const computer = T({ kind: 'computer', definition: { name: 'computer' } })
+
+  it('ask unless in auto mode', () => {
+    for (const t of [browser, computer]) {
+      expect(decide(t, {}, ctx('ask')).action).toBe('ask')
+      expect(decide(t, {}, ctx('auto-edit')).action).toBe('ask')
+      expect(decide(t, {}, ctx('auto')).action).toBe('allow')
+    }
+  })
+
+  it('one "always allow" covers the whole toolset', () => {
+    expect(allowKey(browser, {})).toBe('browser')
+    expect(allowKey(computer, { action: 'left_click' })).toBe('computer')
+    const other = T({ kind: 'browser', definition: { name: 'browser_navigate' } })
+    expect(decide(other, {}, ctx('ask', new Set(['browser']))).action).toBe('allow')
+  })
+
+  it('are not offered in plan mode', () => {
+    expect(toolsForMode([browser, computer], 'plan')).toEqual([])
   })
 })
