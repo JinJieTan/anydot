@@ -8,7 +8,7 @@ export type {
 } from './loop'
 export { allowKey, dangerOf, decide, isSafeCommand, toolsForMode } from './permissions'
 export type { Decision, PermissionMode } from './permissions'
-export { buildSystemPrompt, loadProjectInstructions } from './prompt'
+export { buildChatSystemPrompt, buildSystemPrompt, loadProjectInstructions } from './prompt'
 export { resolvePath } from './paths'
 export { resolveShellEnv, runCommand, shellFor } from './shell'
 export { sandboxAvailable } from './sandbox'

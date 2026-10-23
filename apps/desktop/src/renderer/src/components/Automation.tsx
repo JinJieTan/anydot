@@ -1,7 +1,7 @@
 import { AppWindow, Monitor, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ComputerPermissions, DisplayInfo } from '../../../shared/ipc'
-import { invoke } from '../lib/api'
+import type { ChromeExtStatus, ComputerPermissions, DisplayInfo } from '../../../shared/ipc'
+import { api, invoke } from '../lib/api'
 import { attempt, useApp } from '../store/app'
 import { Badge, Button, Field, Select, Toggle } from './ui'
 
@@ -32,6 +32,99 @@ function PermissionRow({
           </Button>
         </>
       )}
+    </div>
+  )
+}
+
+function ChromeExtensionPanel() {
+  const [status, setStatus] = useState<ChromeExtStatus | null>(null)
+  const [installed, setInstalled] = useState<{ dir: string; chromeOpened: boolean } | null>(null)
+  const [exported, setExported] = useState<string | null>(null)
+
+  useEffect(() => {
+    void invoke('chromeExt.status').then(setStatus)
+    return api.on('chrome-ext', setStatus)
+  }, [])
+
+  const install = async () => {
+    const r = await attempt(() => invoke('chromeExt.install'))
+    if (r) setInstalled(r)
+  }
+  const exportZip = async () => {
+    const r = await attempt(() => invoke('chromeExt.exportZip'))
+    if (r) setExported(r.path)
+  }
+
+  const connected = !!status?.connected
+  const outdated = connected && status.extensionVersion !== status.expectedVersion
+
+  return (
+    <div className="mt-4 space-y-3 rounded-lg border border-line px-4 py-3">
+      <div className="flex items-center gap-2">
+        <div className="text-sm font-medium">aitech 浏览器助手（Chrome 插件）</div>
+        {connected ? (
+          <Badge tone="accent">已连接 v{status.extensionVersion}</Badge>
+        ) : (
+          <Badge tone="warn">未连接</Badge>
+        )}
+      </div>
+      {outdated && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          插件版本（{status.extensionVersion}）和 aitech 自带的版本（{status.expectedVersion}
+          ）不一致，请在 chrome://extensions 里点一下插件的刷新按钮。
+        </p>
+      )}
+      {status && !status.listening && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          aitech 没能在本机端口上等待插件连接，可能端口被占用了，可以尝试重启 aitech。
+        </p>
+      )}
+      {!connected && (
+        <ol className="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-fg-soft">
+          <li>
+            点击“安装到 Chrome”。aitech 会准备好插件文件夹并在
+            {navigator.userAgent.includes('Mac') ? '访达' : '文件管理器'}
+            里显示，同时打开 Chrome 的扩展程序页面（地址 chrome://extensions 已复制到剪贴板）。
+          </li>
+          <li>打开扩展程序页面右上角的“开发者模式”。</li>
+          <li>
+            点击“加载已解压的扩展程序”，选择 chrome-extension 文件夹，也可以直接把文件夹拖进页面。
+          </li>
+          <li>装好后插件会自动连接，这里会显示“已连接”。之后 aitech 更新时插件会自动跟着更新。</li>
+        </ol>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => void install()}>
+          {connected ? '重新安装' : '安装到 Chrome'}
+        </Button>
+        <Button size="sm" onClick={() => void exportZip()}>
+          导出安装包（.zip）
+        </Button>
+      </div>
+      {installed && (
+        <div className="space-y-1 text-xs text-fg-faint">
+          <div>
+            插件文件夹：<span className="font-mono break-all select-text">{installed.dir}</span>
+            （请不要移动或删除它）
+          </div>
+          {!installed.chromeOpened && (
+            <div className="text-amber-700 dark:text-amber-400">
+              没能自动打开 Chrome，请在 Chrome 地址栏里粘贴 chrome://extensions 并回车。
+            </div>
+          )}
+        </div>
+      )}
+      {exported && (
+        <div className="text-xs text-fg-faint">
+          已导出到 <span className="font-mono break-all select-text">{exported}</span>
+          。在其他电脑上先解压，再按上面第 2、3 步加载解压出来的文件夹。
+        </div>
+      )}
+      <p className="text-xs leading-relaxed text-fg-faint">
+        Agent 会使用你 Chrome 里已登录的账号，但只操作它自己打开的“aitech”标签组。操作期间 Chrome
+        顶部会显示“正在调试此浏览器”的提示条。插件只和本机的 aitech 通信； 不用的时候可以在
+        chrome://extensions 里关掉它。
+      </p>
     </div>
   )
 }
@@ -101,25 +194,48 @@ export function AutomationTab() {
       <section>
         <div className="flex items-center gap-3">
           <AppWindow className="size-4 text-fg-soft" />
-          <h2 className="text-base font-semibold">内置浏览器</h2>
+          <h2 className="text-base font-semibold">浏览器</h2>
           <div className="ml-auto">
             <Toggle
               checked={settings.browserTool}
-              label="允许 Agent 使用内置浏览器"
+              label="允许 Agent 操作网页"
               onChange={(browserTool) => void updateSettings({ browserTool })}
             />
           </div>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-fg-soft">
-          项目对话中的 Agent 可以在一个独立的浏览器窗口里打开网页、点击、填写表单和截图，
-          适合操作动态网页、验证本地开发服务器。这个窗口的登录状态和你的 Chrome 分开保存，
-          需要登录的网站可以先打开窗口自己登录一次。
+          项目对话中的 Agent
+          可以打开网页、点击、填写表单和截图，适合操作动态网页、验证本地开发服务器。
         </p>
-        <div className="mt-3">
-          <Button size="sm" onClick={() => void attempt(() => invoke('browser.show'))}>
-            打开浏览器窗口
-          </Button>
+        <div className="mt-4">
+          <Field label="在哪里操作网页">
+            <Select
+              value={settings.browserBackend}
+              disabled={!settings.browserTool}
+              onChange={(e) =>
+                void updateSettings({ browserBackend: e.target.value as 'builtin' | 'chrome' })
+              }
+            >
+              <option value="builtin">aitech 内置浏览器（登录状态独立，推荐）</option>
+              <option value="chrome">我的 Chrome（需要安装插件，使用已登录的账号）</option>
+            </Select>
+          </Field>
         </div>
+        {settings.browserBackend === 'chrome' ? (
+          <ChromeExtensionPanel />
+        ) : (
+          <>
+            <p className="mt-3 text-sm leading-relaxed text-fg-soft">
+              内置浏览器是一个独立窗口，登录状态和你的 Chrome
+              分开保存，需要登录的网站可以先打开窗口自己登录一次。
+            </p>
+            <div className="mt-3">
+              <Button size="sm" onClick={() => void attempt(() => invoke('browser.show'))}>
+                打开浏览器窗口
+              </Button>
+            </div>
+          </>
+        )}
       </section>
 
       <section>

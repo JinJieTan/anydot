@@ -58,6 +58,18 @@ interface AppState {
 
 let toastSeq = 0
 
+/** The conversation last opened in each sidebar tab, restored when switching back. */
+const lastActive: Record<Mode, string | null> = { chat: null, code: null }
+
+function rememberMode(mode: Mode) {
+  useApp.setState({ mode })
+  try {
+    localStorage.setItem(MODE_KEY, mode)
+  } catch {
+    // Storage unavailable; the tab just won't be remembered.
+  }
+}
+
 export const useApp = create<AppState>((set, get) => ({
   view: 'chat',
   mode: initialMode(),
@@ -75,20 +87,27 @@ export const useApp = create<AppState>((set, get) => ({
 
   setView: (view) => {
     set({ view })
-    if (view === 'images') get().setMode('chat')
+    if (view === 'images') rememberMode('chat')
   },
   setMode: (mode) => {
-    set({ mode })
-    try {
-      localStorage.setItem(MODE_KEY, mode)
-    } catch {
-      // Storage unavailable; the tab just won't be remembered.
-    }
+    if (mode === get().mode) return
+    rememberMode(mode)
+    // Each tab shows its own conversation: the last one opened there, else its newest.
+    const { conversations, activeId } = get()
+    const inMode = (c: ConversationDTO) => (mode === 'code') === !!c.projectId
+    const current = conversations.find((c) => c.id === activeId)
+    if (current && inMode(current)) return
+    const last = conversations.find((c) => c.id === lastActive[mode])
+    set({ activeId: (last ?? conversations.find(inMode))?.id ?? null })
   },
   open: (id) => {
     set({ activeId: id, view: 'chat' })
     const c = id ? get().conversations.find((x) => x.id === id) : undefined
-    if (c) get().setMode(c.projectId ? 'code' : 'chat')
+    if (c) {
+      const mode = c.projectId ? 'code' : 'chat'
+      lastActive[mode] = c.id
+      rememberMode(mode)
+    }
   },
   setSearch: (search) => {
     set({ search })

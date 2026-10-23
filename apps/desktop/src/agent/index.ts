@@ -8,6 +8,7 @@
 import {
   ALL_TOOLS,
   BROWSER_TOOLS,
+  buildChatSystemPrompt,
   buildSystemPrompt,
   Computer,
   computerDisplayTool,
@@ -135,19 +136,33 @@ async function start(runId: string, req: AgentRunRequest) {
         ],
         a.mode,
       )
-      system = buildSystemPrompt({
-        cwd,
-        platform: process.platform,
-        shell: shellFor(process.platform, env).name,
-        mode: a.mode,
-        projectName: a.projectName,
-        projectInstructions: a.projectInstructions ?? undefined,
-        fileInstructions: await loadProjectInstructions(cwd),
-        userSystemPrompt: a.userSystemPrompt ?? undefined,
-        sandbox,
-        browser: tools.some((t) => t.kind === 'browser'),
-        computer: tools.some((t) => t.kind === 'computer'),
-      })
+      const browser =
+        tools.some((t) => t.kind === 'browser') && (a.browserBackend === 'chrome' ? 'chrome' : true)
+      const computer = tools.some((t) => t.kind === 'computer')
+      const shell = shellFor(process.platform, env).name
+      system = a.workspace
+        ? buildChatSystemPrompt({
+            cwd,
+            platform: process.platform,
+            shell,
+            userSystemPrompt: a.userSystemPrompt ?? undefined,
+            sandbox,
+            browser,
+            computer,
+          })
+        : buildSystemPrompt({
+            cwd,
+            platform: process.platform,
+            shell,
+            mode: a.mode,
+            projectName: a.projectName,
+            projectInstructions: a.projectInstructions ?? undefined,
+            fileInstructions: await loadProjectInstructions(cwd),
+            userSystemPrompt: a.userSystemPrompt ?? undefined,
+            sandbox,
+            browser,
+            computer,
+          })
     }
 
     const result = await runAgent({

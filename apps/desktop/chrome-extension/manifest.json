@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "aitech 浏览器助手",
+  "description": "让 aitech 桌面端的 Agent 在你的 Chrome 里打开网页、点击、输入和截图。只连接本机的 aitech。",
+  "version": "0.1.0",
+  "minimum_chrome_version": "120",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsmSCcKb46WbkcqipHgW4HbC2MUTl+AT0ekiMEXdOfF27vbTwXIni+ycIoRYLBZbvNAI0FtaPP/g8kikCQYX7UGxziPaBMZ/aAw8laRCmB66PLwvvm5H9CwwLAXXW6LZgPPMLU4u+39IiuViQeb2HbTo8bTSXs4zkyGHunRcgOnQmtDmePrgmBGdwD8hBE68va7Pm3D3HZMTbWUuUtSoM1hg0Vwha14ykjBVd7jE5pFgIp+NsWbQ4F+2G+f5YzZ+Acufpt86Q/yDthQN6LdBBaARbgTOY4XIMKEog8pgJBJEUNDAl4GT9hnLkAN0SeHzjGDbygUt58MnJN+2bPUwIawIDAQAB",
+  "permissions": ["debugger", "tabs", "tabGroups", "scripting", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "aitech 浏览器助手", "default_popup": "popup.html" }
+}

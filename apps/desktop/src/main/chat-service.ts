@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { AgentEvent, ApprovalDecision, FileBackup } from '@aitech/agent'
 import { base64ToBytes, toModelMessages, type MessagePart, type ToolImage } from '@aitech/core'
 import {
@@ -49,6 +50,8 @@ export class ChatService {
     private readonly agent: AgentHost,
     private readonly settings: () => Settings,
     private readonly emit: (event: ChatStreamEvent) => void,
+    /** Plain chats each get a working folder under here for their tools. */
+    private readonly workspaceRoot: string = join(tmpdir(), 'aitech-workspaces'),
   ) {}
 
   runningConversations(): string[] {
@@ -141,6 +144,11 @@ export class ChatService {
     return this.store.updateConversation(conversationId, {
       activeLeafId: newestLeafFrom(all, messageId),
     })
+  }
+
+  /** A plain chat's working folder (created on its first run). */
+  workspaceDir(conversationId: string): string {
+    return join(this.workspaceRoot, conversationId)
   }
 
   /** Stop the background jobs (dev servers etc.) a conversation's agent started. */
@@ -333,6 +341,9 @@ export class ChatService {
         })
         if (run.aborted) return end()
 
+        const cwd = project?.rootPath ?? this.workspaceDir(conversationId)
+        if (!project) await mkdir(cwd, { recursive: true })
+
         const request: AgentRunRequest = {
           provider: creds.provider,
           modelId: creds.model.modelId,
@@ -341,17 +352,18 @@ export class ChatService {
           temperature: conv.params.temperature,
           maxOutputTokens: conv.params.maxOutputTokens,
           thinking: creds.model.capabilities.includes('reasoning') ? conv.thinking : 'off',
-          system: project ? undefined : (conv.systemPrompt ?? undefined),
-          agent: project && {
+          agent: {
             conversationId,
-            cwd: project.rootPath,
+            cwd,
+            workspace: !project,
             // Tasks started from a phone never run fully unattended: commands still need a tap.
-            mode:
-              origin === 'remote' && project.permissionMode === 'auto'
+            mode: !project
+              ? 'ask'
+              : origin === 'remote' && project.permissionMode === 'auto'
                 ? 'auto-edit'
                 : project.permissionMode,
-            projectName: project.name,
-            projectInstructions: project.instructions,
+            projectName: project?.name ?? '',
+            projectInstructions: project?.instructions ?? null,
             userSystemPrompt: conv.systemPrompt,
             allowed: this.allowed.get(conversationId) ?? [],
             sandbox:
@@ -359,6 +371,7 @@ export class ChatService {
                 ? this.settings().windowsSandbox
                 : this.settings().sandbox,
             browser: this.settings().browserTool,
+            browserBackend: this.settings().browserBackend,
             computer: this.settings().computerUse,
             computerBlocked: this.settings().computerUse ? computerBlocked() : undefined,
             computerDisplay: this.settings().computerDisplay,

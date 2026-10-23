@@ -171,10 +171,19 @@ export function ChatView() {
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
           {conversation.title || '新对话'}
         </h1>
-        {project && (
+        {project ? (
           <IconButton
             label="打开项目文件夹"
             onClick={() => void attempt(() => invoke('projects.reveal', project.id))}
+          >
+            <FolderOpen className="size-4" />
+          </IconButton>
+        ) : (
+          <IconButton
+            label="打开工作文件夹"
+            onClick={() =>
+              void attempt(() => invoke('conversations.revealWorkspace', conversation.id))
+            }
           >
             <FolderOpen className="size-4" />
           </IconButton>

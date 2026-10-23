@@ -8,6 +8,12 @@ import { openDatabase, Store } from '@aitech/db'
 import { AgentHost } from './agent-host'
 import { BlobStore } from './blobs'
 import { AgentBrowser } from './browser'
+import { ChromeBridge } from './chrome-bridge'
+import {
+  ALLOWED_EXTENSION_IDS,
+  EXTENSION_VERSION,
+  refreshInstalledExtension,
+} from './chrome-extension'
 import { WebSearch } from './search'
 import { ChatService } from './chat-service'
 import { emit } from './events'
@@ -29,8 +35,19 @@ protocol.registerSchemesAsPrivileged([
 const agent = new AgentHost()
 const browser = new AgentBrowser()
 const webSearch = new WebSearch()
+const chromeExt = new ChromeBridge({
+  allowedIds: ALLOWED_EXTENSION_IDS,
+  appVersion: app.getVersion(),
+  extensionVersion: EXTENSION_VERSION,
+  onStatus: (s) => emit('chrome-ext', s),
+})
 agent.onHostCall = (method, params) => {
-  if (method === 'browser') return browser.exec(params as BrowserCommand)
+  if (method === 'browser') {
+    const useChrome = store && loadSettings(store).browserBackend === 'chrome'
+    return useChrome
+      ? chromeExt.exec(params as BrowserCommand)
+      : browser.exec(params as BrowserCommand)
+  }
   if (method === 'search') {
     const { query, limit } = params as { query: string; limit: number }
     return webSearch.search(query, limit)
@@ -175,6 +192,7 @@ if (!app.requestSingleInstanceLock()) {
         emit('chat', e)
         remote?.onChatEvent(e)
       },
+      join(app.getPath('userData'), 'workspaces'),
     )
     images = new ImageService(s, blobs, (job) => emit('image', job))
     images.resume()
@@ -193,9 +211,15 @@ if (!app.requestSingleInstanceLock()) {
       remote,
       mcp,
       browser,
+      chromeExt,
       agent,
       dbPath: opened.dbPath,
     })
+    void refreshInstalledExtension().catch(() => {})
+    const settings = loadSettings(s)
+    void chromeExt
+      .setEnabled(settings.browserTool && settings.browserBackend === 'chrome')
+      .catch((err: Error) => console.error('[chrome-ext]', err.message))
     createWindow()
     void remote.restart()
 
@@ -214,6 +238,7 @@ if (!app.requestSingleInstanceLock()) {
     remote?.stop()
     agent.stop()
     browser.close()
+    chromeExt.stop()
     webSearch.close()
     store?.db.close()
   })

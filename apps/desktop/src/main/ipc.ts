@@ -1,4 +1,4 @@
-import { copyFile, readFile, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import {
   app,
@@ -27,6 +27,8 @@ import type { ChatService } from './chat-service'
 import { exportData, importData } from './data-transfer'
 import type { AgentHost } from './agent-host'
 import type { AgentBrowser } from './browser'
+import type { ChromeBridge } from './chrome-bridge'
+import { exportExtensionZip, prepareInstall } from './chrome-extension'
 import { computerPermissions, requestComputerPermission } from './computer-permissions'
 import { openPreview } from './preview'
 import { emit } from './events'
@@ -43,6 +45,7 @@ interface Deps {
   remote: RemoteService
   mcp: McpService
   browser: AgentBrowser
+  chromeExt: ChromeBridge
   agent: AgentHost
   dbPath: string
 }
@@ -117,6 +120,7 @@ export function registerIpc({
   remote,
   mcp,
   browser,
+  chromeExt,
   agent,
   dbPath,
 }: Deps): void {
@@ -136,10 +140,11 @@ export function registerIpc({
     }),
 
     'settings.get': getSettings,
-    'settings.set': (patch) => {
+    'settings.set': async (patch) => {
       const next = { ...getSettings(), ...patch }
       store.setSetting(SETTINGS_KEY, next)
       nativeTheme.themeSource = next.theme
+      await chromeExt.setEnabled(next.browserTool && next.browserBackend === 'chrome')
       return next
     },
 
@@ -277,10 +282,20 @@ export function registerIpc({
       })
     },
     'conversations.update': (id, patch) => store.updateConversation(id, patch),
-    'conversations.delete': (id) => {
+    'conversations.delete': async (id) => {
+      const plain = !store.getConversation(id)?.projectId
       chat.stop(id)
       chat.clearJobs(id)
       store.deleteConversation(id)
+      if (plain) await rm(chat.workspaceDir(id), { recursive: true, force: true })
+    },
+    'conversations.revealWorkspace': async (id) => {
+      const conv = store.getConversation(id)
+      if (!conv) throw new Error('对话不存在')
+      if (conv.projectId) throw new Error('项目对话没有单独的工作文件夹')
+      const dir = chat.workspaceDir(id)
+      await mkdir(dir, { recursive: true })
+      await shell.openPath(dir)
     },
 
     'chat.send': ({ conversationId, text, attachments }) =>
@@ -314,6 +329,9 @@ export function registerIpc({
     'preview.html': (html) => openPreview(html),
 
     'browser.show': () => browser.show(),
+    'chromeExt.status': () => chromeExt.status(),
+    'chromeExt.install': () => prepareInstall(),
+    'chromeExt.exportZip': () => exportExtensionZip(),
     'computer.permissions': () => computerPermissions(),
     'computer.displays': () => agent.displays(),
     'computer.requestPermission': (kind) => requestComputerPermission(kind),

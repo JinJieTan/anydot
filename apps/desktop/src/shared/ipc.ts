@@ -87,6 +87,8 @@ export interface Settings {
   windowsSandbox: boolean
   /** Offer the built-in browser tools to project agents. */
   browserTool: boolean
+  /** Where the browser tools run: the app's own window, or the user's Chrome via the extension. */
+  browserBackend: 'builtin' | 'chrome'
   /** Offer the computer tool (screen + mouse + keyboard) to project agents. */
   computerUse: boolean
   /** Display the agent works on by default (driver id); null: the main display. */
@@ -101,8 +103,22 @@ export const DEFAULT_SETTINGS: Settings = {
   sandbox: true,
   windowsSandbox: false,
   browserTool: true,
+  browserBackend: 'builtin',
   computerUse: false,
   computerDisplay: null,
+}
+
+/** The aitech Chrome extension's connection to the app. */
+export interface ChromeExtStatus {
+  /** The app is listening for the extension (Chrome backend selected). */
+  listening: boolean
+  port: number | null
+  connected: boolean
+  /** Version of the connected extension. */
+  extensionVersion: string | null
+  userAgent: string | null
+  /** Version of the extension this app ships. */
+  expectedVersion: string
 }
 
 /** OS permissions computer use depends on (macOS only; elsewhere always granted). */
@@ -242,7 +258,10 @@ export interface Rpc {
       pinned?: boolean
     },
   ) => ConversationDTO
+  /** Also deletes a plain chat's workspace folder. */
   'conversations.delete': (id: string) => void
+  /** Opens a plain chat's workspace folder in the file manager. */
+  'conversations.revealWorkspace': (id: string) => void
 
   /** Start a new user turn on the active branch. */
   'chat.send': (input: { conversationId: string; text: string; attachments: Attachment[] }) => void
@@ -298,6 +317,11 @@ export interface Rpc {
 
   /** Bring the agent's built-in browser window to the front. */
   'browser.show': () => void
+  'chromeExt.status': () => ChromeExtStatus
+  /** Write the extension folder, reveal it and open chrome://extensions. */
+  'chromeExt.install': () => { dir: string; chromeOpened: boolean }
+  /** Save the extension as a zip. */
+  'chromeExt.exportZip': () => { path: string } | null
   'computer.permissions': () => ComputerPermissions
   'computer.displays': () => DisplayInfo[]
   /** Ask the OS for a permission (prompts, or opens System Settings). */
@@ -346,6 +370,7 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'conversations.create': true,
   'conversations.update': true,
   'conversations.delete': true,
+  'conversations.revealWorkspace': true,
   'chat.send': true,
   'chat.regenerate': true,
   'chat.edit': true,
@@ -367,6 +392,9 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'mcp.delete': true,
   'preview.html': true,
   'browser.show': true,
+  'chromeExt.status': true,
+  'chromeExt.install': true,
+  'chromeExt.exportZip': true,
   'computer.permissions': true,
   'computer.displays': true,
   'computer.requestPermission': true,
@@ -400,6 +428,7 @@ export interface Events {
   remote: RemoteStatusDTO
   'remote-pair': PairRequestDTO
   mcp: McpServerStatus[]
+  'chrome-ext': ChromeExtStatus
   invalidate: { scope: 'conversations' | 'providers' | 'models' | 'images' | 'projects' | 'all' }
 }
 
@@ -416,13 +445,15 @@ export interface AgentRunRequest {
   temperature?: number
   maxOutputTokens?: number
   thinking: ThinkingLevel
-  /** Plain chat: the conversation's own system prompt, no tools. */
+  /** Plain chat without tools: the conversation's own system prompt. */
   system?: string
-  /** Present for project conversations: run as a coding agent. */
+  /** Run as an agent with tools: in a project, or in a plain chat's own workspace folder. */
   agent?: {
     /** Background jobs (dev servers etc.) belong to the conversation. */
     conversationId: string
     cwd: string
+    /** Plain chat: `cwd` is the conversation's workspace folder, not a project. */
+    workspace?: boolean
     mode: PermissionMode
     projectName: string
     projectInstructions: string | null
@@ -432,6 +463,8 @@ export interface AgentRunRequest {
     sandbox: boolean
     /** Offer the built-in browser tools. */
     browser: boolean
+    /** The browser tools drive the user's own Chrome (via the extension). */
+    browserBackend?: 'builtin' | 'chrome'
     /** Offer the computer tool. */
     computer: boolean
     /** Set when the computer tool can't work yet, e.g. OS permissions are missing. */

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          13px/1.5 -apple-system,
+          system-ui,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 14px 16px;
+        width: 260px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #a3a3a3;
+        flex: none;
+      }
+      .on .dot {
+        background: #16a34a;
+      }
+      .hint {
+        color: #737373;
+        margin: 8px 0 12px;
+      }
+      button {
+        font: inherit;
+        padding: 4px 12px;
+        border-radius: 6px;
+        border: 1px solid #d4d4d4;
+        background: transparent;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>aitech 浏览器助手</h1>
+    <div id="status" class="row"><span class="dot"></span><span id="label">检查中…</span></div>
+    <p id="hint" class="hint"></p>
+    <button id="reconnect">重新连接</button>
+    <script src="popup.js"></script>
+  </body>
+</html>
