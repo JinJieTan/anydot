@@ -1,6 +1,7 @@
 {
   "name": "@aitech/relay",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "aitech relay: pairs phones with desktops and forwards end-to-end encrypted messages",

@@ -1,5 +1,6 @@
 {
   "name": "aitech",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@10.6.2",
   "engines": {

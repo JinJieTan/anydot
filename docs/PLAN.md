@@ -217,13 +217,14 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] Windows CI 验证：沙箱（项目内可写、项目外 / git hooks 不可写）、电脑操作驱动（显示器、截图、鼠标）
 - [ ] Windows 真机验证：多显示器混合缩放、在真实项目里开启沙箱跑 npm / git
 - [ ] Capacitor 打包 iOS / Android —— 需要 Xcode、Android SDK 和开发者账号
-- [ ] 自动更新 —— 需要先确定发布渠道（GitHub Releases 或自建下载站）
+- [x] 发布渠道：推送 `v*` 标签后 GitHub Actions 打包未签名安装包并创建草稿 Release（.github/workflows/release.yml）
+- [ ] 自动更新 —— macOS 必须有签名才能自动更新；Windows 可以先做
 - [ ] macOS 签名与公证、Windows 签名 —— 需要证书
 - [ ] E2E 加密同步（WebDAV / S3）与新设备迁移
 
 ## 9. 风险与待确认事项
 
-- [ ] 项目名称、开源许可证（建议：客户端 Apache-2.0；relay 可以考虑 AGPL-3.0）
+- [x] 开源许可证：MIT（项目名称待定）
 - [x] 自有 new-api 支持 `/v1/responses` 和 `/v1/images/edits`
 - [x] 平台：macOS + Windows 一起做
 - [ ] Apple 开发者账号（签名、公证、以后上架 App）；Windows 代码签名证书（建议 Azure Trusted Signing），否则会被 SmartScreen 拦截

@@ -10,6 +10,41 @@
 
 设计文档：[docs/PLAN.md](docs/PLAN.md) · 中继部署：[docs/DEPLOY.md](docs/DEPLOY.md)
 
+## 安装
+
+到 [Releases](https://github.com/JinJieTan/aitech/releases) 下载对应系统的安装包：
+
+| 系统                            | 文件                                    |
+| ------------------------------- | --------------------------------------- |
+| macOS（Apple 芯片 M1/M2/M3/M4） | `aitech-版本号-mac-arm64.dmg`           |
+| macOS（Intel 芯片）             | `aitech-版本号-mac-x64.dmg`             |
+| Windows（绝大多数电脑）         | `aitech-版本号-windows-x64-setup.exe`   |
+| Windows（ARM 设备）             | `aitech-版本号-windows-arm64-setup.exe` |
+
+安装包没有使用付费的开发者证书签名，所以第一次打开时系统会拦一下，按下面操作一次即可，以后正常打开。
+
+**macOS**
+
+1. 打开 dmg，把 aitech 拖到“应用程序”。
+2. 双击打开，系统提示“无法验证开发者”或“Apple 无法检查其是否包含恶意软件”时，点“完成”或“取消”。
+3. 打开“系统设置 → 隐私与安全性”，在页面下方找到 aitech，点“仍要打开”，输入开机密码确认。
+
+如果提示“已损坏，无法打开”，在“终端”里运行下面这条命令后再打开：
+
+```bash
+xattr -cr /Applications/aitech.app
+```
+
+**Windows**
+
+运行安装程序时如果出现“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。
+
+**更新与已知限制**
+
+- 目前没有自动更新，新版本需要到 Releases 下载后覆盖安装。数据保存在用户目录，覆盖安装不会丢失。
+- macOS 上更新后，系统可能会再次询问是否允许 aitech 使用钥匙串（输入开机密码，点“始终允许”）；用到“电脑操作”功能的话，可能需要在“隐私与安全性”里重新勾选辅助功能和录屏权限。这是没有付费签名的应用在 macOS 上的正常现象。
+- 出现问题时，在“设置 → 关于”里点“打开日志文件夹”，把 `main.log` 附在 issue 里（日志会自动隐去 API Key）。
+
 ## 开发
 
 需要 Node.js 24+ 和 pnpm 10+。
@@ -61,6 +96,7 @@ MOBILE_DIR=apps/mobile/dist PUBLIC_URL=http://<电脑局域网 IP>:8090 node app
 | `pnpm typecheck`                                          | 类型检查             |
 | `pnpm lint` / `pnpm format`                               | 代码检查 / 格式化    |
 | `pnpm --filter @aitech/desktop dist:mac`                  | 打包 macOS（dmg）    |
+| `pnpm --filter @aitech/desktop dist:mac:unsigned`         | 打包 macOS（未签名） |
 | `pnpm --filter @aitech/desktop dist:win`                  | 打包 Windows（nsis） |
 | `docker build -f apps/relay/Dockerfile -t aitech-relay .` | 中继 + 手机网页镜像  |
 
@@ -76,3 +112,16 @@ packages/db        本地 SQLite schema、迁移与数据访问
 packages/protocol  设备身份、端到端加密、配对与中继协议（桌面 / 手机 / 中继共用）
 docs/              设计与部署文档
 ```
+
+## 发布
+
+更新版本号无需改代码：推送一个 `v` 开头的标签即可。GitHub Actions 会在 macOS 和 Windows 上跑测试、打包，并创建一个**草稿** Release，检查无误后在 GitHub 上点“发布”。
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+## 许可证
+
+[MIT](LICENSE)

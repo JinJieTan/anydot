@@ -1,7 +1,8 @@
 {
   "name": "@aitech/desktop",
   "productName": "aitech",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "aitech desktop client",
   "main": "./out/main/index.js",
@@ -12,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
     "pack:dir": "electron-vite build && electron-builder --dir",
     "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:mac:unsigned": "electron-vite build && electron-builder --mac -c.mac.identity=- -c.mac.hardenedRuntime=false",
     "dist:win": "electron-vite build && electron-builder --win",
     "test": "vitest run"
   },
