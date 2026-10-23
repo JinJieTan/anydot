@@ -20,6 +20,8 @@ export type MessagePart =
       /** Files before this call changed them (blob null: it didn't exist), for undo. */
       backups?: { path: string; blob: string | null }[]
     }
+  /** A slash command the user ran: shown as `/name args`, sent to the model as `prompt`. */
+  | { type: 'command'; name: string; args: string; prompt: string }
   /** Compacted history: everything before this message is replaced by `text`. */
   | { type: 'summary'; text: string }
 

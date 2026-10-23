@@ -11,11 +11,13 @@ import {
   type ToolImage,
   type Usage,
 } from '@aitech/core'
+import type { Hooks } from './hooks'
 import { allowKey, decide, type PermissionMode } from './permissions'
 import {
   ToolInputError,
   type AgentTool,
   type FileBackup,
+  type Question,
   type ToolContext,
   type ToolResult,
 } from './tools/types'
@@ -29,6 +31,8 @@ export interface ApprovalRequest {
   summary: string
   reason: string
   danger: boolean
+  /** Set for the ask_user tool: answer these instead of allowing or denying. */
+  questions?: Question[]
 }
 
 export type AgentEvent =
@@ -72,7 +76,12 @@ export interface RunAgentOptions {
   compactAtTokens?: number
   onEvent: (e: AgentEvent) => void
   approve: (req: ApprovalRequest) => Promise<ApprovalDecision>
+  /** User-configured commands run before/after tool calls and when the agent stops. */
+  hooks?: Hooks
 }
+
+/** How many times Stop hooks may send the agent back to work in one run. */
+const MAX_STOP_CONTINUES = 3
 
 export interface RunAgentResult {
   status: 'done' | 'aborted' | 'error' | 'max-steps'
@@ -138,6 +147,8 @@ export function dropOldImages(history: ModelMessage[], keep: number, slack = 0) 
   }
 }
 
+const PARALLEL_TOOL = 'task'
+
 const DENIED =
   'The user denied this action. Do not retry it; continue without it or ask the user how to proceed.'
 const ABORTED = 'Stopped by the user before this ran.'
@@ -149,6 +160,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const toolSet = opts.tools.length ? defineTools(opts.tools.map((t) => t.definition)) : undefined
   const byName = new Map(opts.tools.map((t) => [t.definition.name, t]))
   let history = [...opts.messages]
+  let stopContinues = 0
 
   for (let step = 1; step <= maxSteps; step++) {
     if (ctx.signal.aborted) return { status: 'aborted', steps: step - 1 }
@@ -247,6 +259,22 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         history.push(...(response as ModelMessage[]))
         continue
       }
+      // A Stop hook can send the agent back to work, e.g. "tests still fail".
+      if (opts.hooks && stopContinues < MAX_STOP_CONTINUES) {
+        const stop = await opts.hooks.run(
+          'Stop',
+          { stop_hook_active: stopContinues > 0 },
+          ctx.signal,
+        )
+        if (stop.block && !ctx.signal.aborted) {
+          stopContinues++
+          history.push(
+            ...(response ?? [{ role: 'assistant' as const, content: text || '(done)' }]),
+            { role: 'user', content: `A Stop hook asked you to continue:\n${stop.block}` },
+          )
+          continue
+        }
+      }
       return { status: 'done', steps: step }
     }
 
@@ -270,18 +298,27 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     )
 
     const results: { toolCallId: string; toolName: string; output: ToolResult }[] = []
-    for (const call of calls) {
-      const output = await executeCall(call, byName, opts, allowed)
-      results.push({ toolCallId: call.id, toolName: call.name, output })
-      onEvent({
-        type: 'tool-result',
-        toolCallId: call.id,
-        name: call.name,
-        output: output.output,
-        isError: !!output.isError,
-        images: output.images,
-        backups: output.backups,
-      })
+    // Calls run one by one, except that consecutive sub-agent tasks run in parallel.
+    for (let i = 0; i < calls.length;) {
+      let j = i + 1
+      if (calls[i]!.name === PARALLEL_TOOL)
+        while (j < calls.length && calls[j]!.name === PARALLEL_TOOL) j++
+      const batch = calls.slice(i, j)
+      const outputs = await Promise.all(batch.map((c) => executeCall(c, byName, opts, allowed)))
+      for (const [k, call] of batch.entries()) {
+        const output = outputs[k]!
+        results.push({ toolCallId: call.id, toolName: call.name, output })
+        onEvent({
+          type: 'tool-result',
+          toolCallId: call.id,
+          name: call.name,
+          output: output.output,
+          isError: !!output.isError,
+          images: output.images,
+          backups: output.backups,
+        })
+      }
+      i = j
     }
     history.push({
       role: 'tool',
@@ -336,6 +373,15 @@ async function executeCall(
     summary = call.name
   }
 
+  if (opts.hooks) {
+    const pre = await opts.hooks.run(
+      'PreToolUse',
+      { tool_name: call.name, tool_input: input },
+      ctx.signal,
+    )
+    if (pre.block) return { output: `Blocked by a PreToolUse hook: ${pre.block}`, isError: true }
+  }
+
   const decision = decide(tool, input, {
     cwd: ctx.cwd,
     mode: opts.mode,
@@ -358,7 +404,20 @@ async function executeCall(
   }
 
   try {
-    return await t.run(input, ctx)
+    const result = await t.run(input, { ...ctx, toolCallId: call.id })
+    if (opts.hooks) {
+      const post = await opts.hooks.run(
+        'PostToolUse',
+        { tool_name: call.name, tool_input: input, tool_response: result.output },
+        ctx.signal,
+      )
+      if (post.block)
+        return {
+          ...result,
+          output: `${result.output}\n\nPostToolUse hook feedback:\n${post.block}`,
+        }
+    }
+    return result
   } catch (err) {
     if (ctx.signal.aborted) return { output: ABORTED, isError: true }
     if (err instanceof ToolInputError)

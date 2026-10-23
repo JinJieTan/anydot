@@ -9,12 +9,19 @@ import {
   ALL_TOOLS,
   BROWSER_TOOLS,
   buildChatSystemPrompt,
+  buildSubagentPrompt,
   buildSystemPrompt,
   Computer,
+  createSubagent,
+  hasHooks,
+  Hooks,
+  loadHooks,
   computerDisplayTool,
   computerTool,
   JobManager,
   loadProjectInstructions,
+  loadSkills,
+  loadUserInstructions,
   McpManager,
   nativeDriver,
   resolveShellEnv,
@@ -23,6 +30,9 @@ import {
   shellFor,
   toolsForMode,
   type ApprovalDecision,
+  type ApprovalRequest,
+  type Skill,
+  type ToolContext,
 } from '@aitech/agent'
 import {
   newId,
@@ -38,7 +48,7 @@ const shellEnv = resolveShellEnv()
 
 interface Run {
   controller: AbortController
-  approvals: Map<string, (d: ApprovalDecision) => void>
+  approvals: Map<string, (d: ApprovalDecision, answers?: Record<string, string>) => void>
 }
 
 const runs = new Map<string, Run>()
@@ -113,6 +123,8 @@ async function start(runId: string, req: AgentRunRequest) {
     let cwd = process.cwd()
     let env: NodeJS.ProcessEnv = process.env
     const sandbox = !!req.agent?.sandbox && sandboxAvailable()
+    let skills: Skill[] = []
+    let hooks: Hooks | undefined
 
     if (req.agent) {
       const a = req.agent
@@ -125,9 +137,23 @@ async function start(runId: string, req: AgentRunRequest) {
           ?.useDisplay(a.computerDisplay ?? null)
           .catch(() => {})
       const pcTool = a.computer ? await buildComputerTool(model) : null
+      // Plain chats see the user's own skills; projects also see the project's.
+      skills = await loadSkills(a.workspace ? null : cwd)
+      const userInstructions = await loadUserInstructions()
+      const hookConfig = await loadHooks(a.workspace ? null : cwd, { project: !!a.projectHooks })
+      if (hasHooks(hookConfig))
+        hooks = new Hooks(hookConfig, {
+          cwd,
+          env,
+          platform: process.platform,
+          sessionId: a.conversationId,
+        })
+      const hasSkills = skills.some((s) => s.kind === 'skill')
       tools = toolsForMode(
         [
-          ...withNativeSearch(ALL_TOOLS, model),
+          ...withNativeSearch(ALL_TOOLS, model).filter(
+            (t) => hasSkills || t.definition.name !== 'skill',
+          ),
           ...(a.browser ? BROWSER_TOOLS : []),
           ...(pcTool
             ? [pcTool, computerDisplayTool].map((t) => t as unknown as (typeof ALL_TOOLS)[number])
@@ -149,6 +175,8 @@ async function start(runId: string, req: AgentRunRequest) {
             sandbox,
             browser,
             computer,
+            skills,
+            userInstructions,
           })
         : buildSystemPrompt({
             cwd,
@@ -162,38 +190,77 @@ async function start(runId: string, req: AgentRunRequest) {
             sandbox,
             browser,
             computer,
+            skills,
+            userInstructions,
           })
     }
 
+    const model = { provider: req.provider, modelId: req.modelId, protocol: req.protocol }
+    const mode = req.agent?.mode ?? 'ask'
+    const approve = (request: ApprovalRequest) =>
+      new Promise<ApprovalDecision>((resolve) => {
+        run.approvals.set(request.toolCallId, resolve)
+        send({ type: 'run.approval', runId, request })
+      })
+    const ctx: ToolContext = {
+      cwd,
+      env,
+      platform: process.platform,
+      signal: run.controller.signal,
+      readFiles: new Map(),
+      imageModel: req.agent?.imageModel,
+      host,
+      computer: req.agent?.computer ? (getComputer() ?? undefined) : undefined,
+      computerBlocked: req.agent?.computerBlocked,
+      sandbox,
+      jobs: req.agent ? jobs.scope(req.agent.conversationId) : undefined,
+      skills,
+      ask: (questions, toolCallId = newId()) =>
+        new Promise((resolve) => {
+          run.approvals.set(toolCallId, (d, answers) =>
+            resolve(d === 'deny' ? null : (answers ?? null)),
+          )
+          send({
+            type: 'run.approval',
+            runId,
+            request: {
+              toolCallId,
+              name: 'ask_user',
+              input: { questions },
+              summary: questions[0]?.question ?? '向你提问',
+              reason: 'Agent 想问你几个问题',
+              danger: false,
+              questions,
+            },
+          })
+        }),
+    }
+    if (tools.some((t) => t.definition.name === 'task'))
+      ctx.subagent = createSubagent({
+        model,
+        system: buildSubagentPrompt({ cwd, platform: process.platform }),
+        thinking: req.thinking,
+        tools,
+        ctx,
+        mode,
+        allowed,
+        approve,
+      })
+
     const result = await runAgent({
-      model: { provider: req.provider, modelId: req.modelId, protocol: req.protocol },
+      model,
       messages: req.messages as ModelMessage[],
       system,
       temperature: req.temperature,
       maxOutputTokens: req.maxOutputTokens,
       thinking: req.thinking,
       tools,
-      mode: req.agent?.mode ?? 'ask',
+      mode,
       allowed,
-      ctx: {
-        cwd,
-        env,
-        platform: process.platform,
-        signal: run.controller.signal,
-        readFiles: new Map(),
-        imageModel: req.agent?.imageModel,
-        host,
-        computer: req.agent?.computer ? (getComputer() ?? undefined) : undefined,
-        computerBlocked: req.agent?.computerBlocked,
-        sandbox,
-        jobs: req.agent ? jobs.scope(req.agent.conversationId) : undefined,
-      },
+      ctx,
       onEvent: (event) => send({ type: 'run.event', runId, event }),
-      approve: (request) =>
-        new Promise<ApprovalDecision>((resolve) => {
-          run.approvals.set(request.toolCallId, resolve)
-          send({ type: 'run.approval', runId, request })
-        }),
+      approve,
+      hooks,
     })
     send({
       type: 'run.end',
@@ -267,7 +334,7 @@ process.parentPort.on('message', (event) => {
       const resolve = run?.approvals.get(msg.toolCallId)
       if (resolve) {
         run!.approvals.delete(msg.toolCallId)
-        resolve(msg.decision)
+        resolve(msg.decision, msg.answers)
       }
       break
     }

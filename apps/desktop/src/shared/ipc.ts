@@ -23,6 +23,8 @@ import type {
   ModelRow,
   PermissionMode,
   ProjectRow,
+  ScheduleInput,
+  ScheduleRow,
 } from '@aitech/db'
 
 export interface AppInfo {
@@ -49,6 +51,8 @@ export type ConversationDTO = ConversationRow
 export type MessageDTO = MessageRow
 export type ImageJobDTO = ImageJobRow
 export type ProjectDTO = ProjectRow
+export type ScheduleDTO = ScheduleRow
+export type { ScheduleInput }
 export type { ApprovalDecision, PermissionMode }
 
 /** A tool call waiting for the user's decision. */
@@ -93,6 +97,14 @@ export interface Settings {
   computerUse: boolean
   /** Display the agent works on by default (driver id); null: the main display. */
   computerDisplay: string | null
+  /** System notifications when a background run finishes or needs an approval. */
+  notifications: boolean
+  /** Run hooks from a project's own .claude/ or .aitech/ settings (user-level hooks always run). */
+  projectHooks: boolean
+  /** Show a tray / menu-bar icon. */
+  trayIcon: boolean
+  /** Global shortcut that brings up a new chat (Electron accelerator); empty: off. */
+  globalShortcut: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -106,6 +118,27 @@ export const DEFAULT_SETTINGS: Settings = {
   browserBackend: 'builtin',
   computerUse: false,
   computerDisplay: null,
+  notifications: true,
+  projectHooks: false,
+  trayIcon: true,
+  globalShortcut: '',
+}
+
+export interface FileChangeDTO {
+  path: string
+  status: 'M' | 'A' | 'D' | 'R' | '?'
+  additions: number
+  deletions: number
+}
+
+/** A skill or custom slash command (SKILL.md / commands/*.md). */
+export interface CommandDTO {
+  kind: 'skill' | 'command'
+  name: string
+  description: string
+  argumentHint?: string
+  path: string
+  scope: 'project' | 'user'
 }
 
 /** The aitech Chrome extension's connection to the app. */
@@ -192,6 +225,8 @@ export interface Rpc {
 
   'settings.get': () => Settings
   'settings.set': (patch: Partial<Settings>) => Settings
+  /** The global shortcut's platform default, for the settings page. */
+  'settings.defaultShortcut': () => string
 
   'providers.list': () => ProviderDTO[]
   'providers.create': (input: ProviderInput) => ProviderDTO
@@ -226,6 +261,30 @@ export interface Rpc {
   'models.delete': (id: string) => void
 
   'projects.list': () => ProjectDTO[]
+
+  /**
+   * Before the first message: run a project task in its own git worktree (on a
+   * new branch), or go back to the project folder.
+   */
+  'conversations.setWorktree': (id: string, enabled: boolean) => ConversationDTO
+  /** Uncommitted changes in the folder a conversation's agent works in. */
+  'git.changes': (conversationId: string) => {
+    repo: boolean
+    branch: string | null
+    folder: string
+    files: FileChangeDTO[]
+  }
+  'git.diff': (input: { conversationId: string; path: string }) => string
+
+  'schedules.list': () => ScheduleDTO[]
+  'schedules.create': (input: ScheduleInput) => ScheduleDTO
+  'schedules.update': (
+    id: string,
+    patch: Partial<ScheduleInput> & { enabled?: boolean },
+  ) => ScheduleDTO
+  'schedules.delete': (id: string) => void
+  /** Run a scheduled task now; returns the new conversation's id. */
+  'schedules.runNow': (id: string) => string
   /** Opens a folder picker; null if cancelled. */
   'projects.create': () => ProjectDTO | null
   'projects.update': (
@@ -278,10 +337,16 @@ export interface Rpc {
   /** Make the newest leaf below `messageId` the active branch. */
   'chat.switchBranch': (input: { conversationId: string; messageId: string }) => ConversationDTO
   'chat.running': () => string[]
+  /** Skills and slash commands for a conversation (null: just the user's own). */
+  'chat.commands': (conversationId: string | null) => CommandDTO[]
+  /** Project files matching a query, for @-mentions in the composer. */
+  'chat.files': (input: { conversationId: string; query: string }) => string[]
   'chat.approve': (input: {
     conversationId: string
     toolCallId: string
     decision: ApprovalDecision
+    /** For an ask_user approval: the answers, keyed by question. */
+    answers?: Record<string, string>
   }) => void
   'chat.approvals': () => ApprovalDTO[]
   /**
@@ -314,6 +379,13 @@ export interface Rpc {
 
   /** Open model-generated HTML in an isolated preview window. */
   'preview.html': (html: string) => void
+  /** Serve a page for the artifact panel's sandboxed iframe; returns its URL. */
+  'artifact.url': (html: string) => string
+  /** Read a file the agent wrote (path relative to the conversation's folder), to show it as an artifact. */
+  'artifact.readFile': (input: { conversationId: string; path: string }) => {
+    path: string
+    content: string
+  }
 
   /** Bring the agent's built-in browser window to the front. */
   'browser.show': () => void
@@ -349,6 +421,7 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'app.info': true,
   'settings.get': true,
   'settings.set': true,
+  'settings.defaultShortcut': true,
   'providers.list': true,
   'providers.create': true,
   'providers.update': true,
@@ -361,6 +434,14 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'models.update': true,
   'models.delete': true,
   'projects.list': true,
+  'conversations.setWorktree': true,
+  'git.changes': true,
+  'git.diff': true,
+  'schedules.list': true,
+  'schedules.create': true,
+  'schedules.update': true,
+  'schedules.delete': true,
+  'schedules.runNow': true,
   'projects.create': true,
   'projects.update': true,
   'projects.delete': true,
@@ -377,6 +458,8 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'chat.stop': true,
   'chat.switchBranch': true,
   'chat.running': true,
+  'chat.commands': true,
+  'chat.files': true,
   'chat.approve': true,
   'chat.approvals': true,
   'chat.rewindFiles': true,
@@ -391,6 +474,8 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'mcp.save': true,
   'mcp.delete': true,
   'preview.html': true,
+  'artifact.url': true,
+  'artifact.readFile': true,
   'browser.show': true,
   'chromeExt.status': true,
   'chromeExt.install': true,
@@ -429,7 +514,13 @@ export interface Events {
   'remote-pair': PairRequestDTO
   mcp: McpServerStatus[]
   'chrome-ext': ChromeExtStatus
-  invalidate: { scope: 'conversations' | 'providers' | 'models' | 'images' | 'projects' | 'all' }
+  /** Bring a conversation to the front (e.g. a notification was clicked). */
+  'open-conversation': { conversationId: string }
+  /** From the tray or the global shortcut. */
+  'app-command': { command: 'new-chat' | 'settings' }
+  invalidate: {
+    scope: 'conversations' | 'providers' | 'models' | 'images' | 'projects' | 'schedules' | 'all'
+  }
 }
 
 export type EventName = keyof Events
@@ -471,6 +562,8 @@ export interface AgentRunRequest {
     computerBlocked?: string
     /** Display to start on (null: main). */
     computerDisplay?: string | null
+    /** Also run the project's own hooks. */
+    projectHooks?: boolean
     imageModel?: {
       provider: { baseUrl: string; apiKey: string; type: ProviderType }
       modelId: string
@@ -482,7 +575,14 @@ export type AgentRequest =
   | { type: 'ping'; id: string }
   | { type: 'run.start'; runId: string; request: AgentRunRequest }
   | { type: 'run.abort'; runId: string }
-  | { type: 'run.approve'; runId: string; toolCallId: string; decision: ApprovalDecision }
+  | {
+      type: 'run.approve'
+      runId: string
+      toolCallId: string
+      decision: ApprovalDecision
+      /** Answers to an ask_user approval, keyed by question. */
+      answers?: Record<string, string>
+    }
   | { type: 'mcp.configure'; servers: McpServerConfig[] }
   | { type: 'host.result'; id: string; result?: unknown; error?: string }
   /** Stop a conversation's background jobs (it was deleted). */

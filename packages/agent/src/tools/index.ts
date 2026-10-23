@@ -1,8 +1,11 @@
+import { askUserTool } from './ask'
 import { bashTool } from './bash'
 import { editFileTool, grepTool, listFilesTool, readFileTool, writeFileTool } from './fs'
 import { generateImageTool } from './image'
 import { bashOutputTool, killJobTool } from './jobs'
 import { webSearchTool } from './search'
+import { skillTool } from './skill'
+import { taskTool } from './task'
 import { todoTool } from './todo'
 import type { AgentTool } from './types'
 import { webFetchTool } from './web'
@@ -20,9 +23,13 @@ export const ALL_TOOLS: AgentTool<never>[] = [
   webFetchTool,
   generateImageTool,
   todoTool,
+  askUserTool,
+  skillTool,
+  taskTool,
 ] as AgentTool<never>[]
 
 export {
+  askUserTool,
   bashOutputTool,
   bashTool,
   killJobTool,
@@ -31,6 +38,8 @@ export {
   grepTool,
   listFilesTool,
   readFileTool,
+  skillTool,
+  taskTool,
   todoTool,
   webFetchTool,
   webSearchTool,

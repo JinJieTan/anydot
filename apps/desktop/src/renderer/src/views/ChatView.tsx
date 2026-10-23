@@ -1,5 +1,13 @@
 import clsx from 'clsx'
-import { Folder, FolderOpen, Settings2, Sparkles, Terminal } from 'lucide-react'
+import {
+  Folder,
+  FolderOpen,
+  GitBranch,
+  GitCompare,
+  Settings2,
+  Sparkles,
+  Terminal,
+} from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   Attachment,
@@ -14,6 +22,7 @@ import { ModelPicker, ThinkingPicker } from '../components/ModelPicker'
 import type { ToolResultPart } from '../components/ToolCall'
 import { Button, Field, IconButton, Input, Modal, Textarea, useDismiss } from '../components/ui'
 import { invoke, isMac } from '../lib/api'
+import { useArtifact } from '../lib/artifact'
 import { activePath, siblingsOf } from '../lib/tree'
 import { attempt, succeeded, useApp } from '../store/app'
 import { useChat } from '../store/chat'
@@ -38,6 +47,7 @@ export function ChatView() {
     ? projects.find((p) => p.id === conversation.projectId)
     : undefined
   const isRunning = !!activeId && running.has(activeId)
+  const changesOpen = useArtifact((s) => !!conversation && s.changesFor === conversation.id)
   const chatModels = models.filter((m) => m.capabilities.includes('chat'))
 
   // Model shown in the picker before a conversation exists.
@@ -57,6 +67,18 @@ export function ChatView() {
   )
 
   const send = async (text: string, attachments: Attachment[]): Promise<boolean> => {
+    // App commands: a fresh conversation in the same project.
+    if (/^\/(clear|new)\s*$/.test(text.trim()) && !attachments.length) {
+      const c = await attempt(() =>
+        invoke('conversations.create', project ? { projectId: project.id } : undefined),
+      )
+      if (!c) return false
+      setConversation(c)
+      useChat.setState((s) => ({ messages: { ...s.messages, [c.id]: [] } }))
+      useApp.getState().upsertConversation(c)
+      open(c.id)
+      return true
+    }
     let conv: ConversationDTO | undefined = conversation
     if (!conv) {
       conv = await attempt(() => invoke('conversations.create', { modelId: effectiveModelId }))
@@ -94,6 +116,8 @@ export function ChatView() {
       running={isRunning}
       autoFocus
       toolbar={toolbar}
+      conversationId={conversation?.id ?? null}
+      builtins={BUILTIN_COMMANDS}
       onSend={send}
       onStop={() => activeId && void invoke('chat.stop', activeId)}
       placeholder={project ? `让 AI 在 ${project.name} 中完成任务，Enter 发送` : undefined}
@@ -138,6 +162,32 @@ export function ChatView() {
             ) : (
               composer
             )}
+            {project && conversation && !noProviders && (
+              <div className="mt-3 flex justify-center">
+                <label
+                  className="flex cursor-pointer items-center gap-2 text-xs text-fg-soft"
+                  title="新建一个分支和工作目录，Agent 只改动那里，不影响项目文件夹"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!conversation.worktreePath}
+                    onChange={async (e) => {
+                      const next = await attempt(() =>
+                        invoke('conversations.setWorktree', conversation.id, e.target.checked),
+                      )
+                      if (next) setConversation(next)
+                    }}
+                  />
+                  <GitBranch className="size-3.5" />
+                  在独立的 git worktree 中运行
+                  {conversation.worktreeBranch && (
+                    <span className="font-mono text-fg-faint">
+                      （{conversation.worktreeBranch}）
+                    </span>
+                  )}
+                </label>
+              </div>
+            )}
             {project && !noProviders && (
               <p className="mt-3 text-center text-xs text-fg-faint">
                 AI 可以读取和修改这个文件夹中的文件、运行命令。修改前会按当前权限模式征求你的确认。
@@ -171,6 +221,28 @@ export function ChatView() {
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
           {conversation.title || '新对话'}
         </h1>
+        {conversation.worktreeBranch && (
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-fg-soft"
+            title={`在独立 worktree 中运行：${conversation.worktreePath}`}
+          >
+            <GitBranch className="size-3.5" />
+            {conversation.worktreeBranch}
+          </span>
+        )}
+        {project && (
+          <IconButton
+            label="查看改动"
+            active={changesOpen}
+            onClick={() =>
+              changesOpen
+                ? useArtifact.getState().close()
+                : useArtifact.getState().openChanges(conversation.id)
+            }
+          >
+            <GitCompare className="size-4" />
+          </IconButton>
+        )}
         {project ? (
           <IconButton
             label="打开项目文件夹"
@@ -595,3 +667,5 @@ function SettingsForm({
     </>
   )
 }
+
+const BUILTIN_COMMANDS = [{ name: 'clear', description: '开始新对话（清空上下文）' }]

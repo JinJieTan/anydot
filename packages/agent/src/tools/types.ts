@@ -1,6 +1,7 @@
 import type { ProviderCredentials, ToolDefinition, ToolImage } from '@aitech/core'
 import type { Computer } from '../computer'
 import type { JobScope } from '../jobs'
+import type { Skill } from '../skills'
 
 /**
  * What a tool does, which drives the permission policy:
@@ -16,6 +17,17 @@ import type { JobScope } from '../jobs'
  */
 export type ToolKind =
   'read' | 'write' | 'exec' | 'network' | 'image' | 'meta' | 'mcp' | 'browser' | 'computer'
+
+/** A multiple-choice question for the user (the ask_user tool). */
+export interface Question {
+  question: string
+  header?: string
+  options: { label: string; description?: string }[]
+  multiSelect?: boolean
+}
+
+/** Answers keyed by question text; null when the user dismissed the questions. */
+export type Answers = Record<string, string> | null
 
 export interface ToolResult {
   output: string
@@ -55,6 +67,14 @@ export interface ToolContext {
   sandbox?: boolean
   /** Background jobs of this conversation; absent where they aren't supported. */
   jobs?: JobScope
+  /** Skills and commands visible to this run (for the skill tool). */
+  skills?: Skill[]
+  /** Runs a read-only sub-agent on a task and returns its final report (the task tool). */
+  subagent?: (prompt: string, parentCallId?: string) => Promise<ToolResult>
+  /** Shows questions to the user and waits for the answers (the ask_user tool). */
+  ask?: (questions: Question[], toolCallId?: string) => Promise<Answers>
+  /** Id of the tool call being run (set per call by the loop). */
+  toolCallId?: string
 }
 
 export interface AgentTool<I = Record<string, unknown>> {

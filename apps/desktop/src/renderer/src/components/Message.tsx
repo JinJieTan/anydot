@@ -20,7 +20,15 @@ import { ToolCall, type ToolResultPart } from './ToolCall'
 import { Button, Textarea } from './ui'
 
 const textOf = (parts: MessagePart[]) =>
-  parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
+  parts
+    .map((p) =>
+      p.type === 'text'
+        ? p.text
+        : p.type === 'command'
+          ? `/${p.name}${p.args ? ` ${p.args}` : ''}`
+          : '',
+    )
+    .join('')
 
 function attachmentsOf(parts: MessagePart[]): Attachment[] {
   return parts.flatMap((p) =>
@@ -240,6 +248,7 @@ export const AssistantMessage = memo(function AssistantMessage({
                 key={t.id}
                 name={t.name}
                 input={t.input}
+                conversationId={message.conversationId}
                 result={results.get(t.id)}
                 approval={
                   approvals[t.id]?.conversationId === message.conversationId && endOfTurn

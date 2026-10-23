@@ -12,6 +12,39 @@ const server = await startMockServer({
   reply: (r) => {
     const body = r.body as { tools?: unknown[] }
     const hasTools = Array.isArray(body?.tools) && body.tools.length > 0
+    // "html": a page to open in the artifact panel.
+    if (/html/i.test(r.lastUserText) && !r.toolResults.length)
+      return {
+        text:
+          '一个可以在侧栏预览的页面：\n\n```html\n<!doctype html><html><head><title>计数器</title></head>' +
+          '<body style="font-family:system-ui;text-align:center;padding:40px"><h1>计数器</h1>' +
+          '<button onclick="n.textContent=+n.textContent+1">+1</button> <span id="n">0</span>' +
+          '</body></html>\n```',
+      }
+    // "提问": the ask_user tool.
+    if (hasTools && /提问/.test(r.lastUserText)) {
+      if (!r.toolResults.length)
+        return {
+          toolCalls: [
+            {
+              name: 'ask_user',
+              input: {
+                questions: [
+                  {
+                    question: '用哪种数据库？',
+                    header: '数据库',
+                    options: [
+                      { label: 'SQLite (推荐)', description: '零配置，适合本地' },
+                      { label: 'Postgres', description: '需要单独部署' },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        }
+      return { text: `收到：${r.toolResults.at(-1)}` }
+    }
     if (hasTools) {
       const step = r.toolResults.length
       if (step === 0)

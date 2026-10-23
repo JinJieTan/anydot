@@ -465,7 +465,7 @@ export class RemoteService {
             name: img.name || 'image',
           })
         }
-        this.chat.send(conversationId, text, attachments, 'remote')
+        await this.chat.send(conversationId, text, attachments, 'remote')
         return true
       }
       case 'chat.stop':
@@ -475,7 +475,15 @@ export class RemoteService {
         const decision = p.decision
         if (decision !== 'allow' && decision !== 'deny' && decision !== 'allow-always')
           throw new Error('无效的决定')
-        this.chat.approve(str('conversationId'), str('toolCallId'), decision)
+        const answers =
+          p.answers && typeof p.answers === 'object' && !Array.isArray(p.answers)
+            ? Object.fromEntries(
+                Object.entries(p.answers as Record<string, unknown>).filter(
+                  (e): e is [string, string] => typeof e[1] === 'string',
+                ),
+              )
+            : undefined
+        this.chat.approve(str('conversationId'), str('toolCallId'), decision, answers)
         return true
       }
       case 'blob.get': {

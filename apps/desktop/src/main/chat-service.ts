@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { AgentEvent, ApprovalDecision, FileBackup } from '@aitech/agent'
+import { expandCommand, loadSkills, type Skill } from '@aitech/agent/skills'
 import { base64ToBytes, toModelMessages, type MessagePart, type ToolImage } from '@aitech/core'
 import {
   newestLeafFrom,
@@ -20,6 +21,7 @@ import type {
 import type { AgentHost, RunHandle } from './agent-host'
 import type { BlobStore } from './blobs'
 import { computerPermissions } from './computer-permissions'
+import { FileIndex } from './file-index'
 import { decryptKey } from './secrets'
 
 const TITLE_MAX = 40
@@ -43,6 +45,11 @@ export class ChatService {
   private runs = new Map<string, ActiveRun>()
   /** "Always allow" keys, per conversation, for this app session. */
   private allowed = new Map<string, string[]>()
+  private fileIndex = new FileIndex()
+  /** Set once the app is quitting: the store is about to close, so late events are dropped. */
+  private closed = false
+  /** Waiting for every run to end (shutdown). */
+  private onIdle: (() => void)[] = []
 
   constructor(
     private readonly store: Store,
@@ -62,15 +69,23 @@ export class ChatService {
     return [...this.runs.values()].flatMap((r) => [...r.approvals.values()])
   }
 
-  send(
+  /** Skills and slash commands available in a conversation (its project's plus the user's). */
+  async commands(conversationId: string | null): Promise<Skill[]> {
+    const conv = conversationId ? this.store.getConversation(conversationId) : undefined
+    const project = conv?.projectId ? this.store.getProject(conv.projectId) : undefined
+    return loadSkills(project?.rootPath ?? null)
+  }
+
+  async send(
     conversationId: string,
     text: string,
     attachments: Attachment[],
     origin: Origin = 'local',
-  ): void {
-    const conv = this.requireIdle(conversationId)
-    const parts = userParts(text, attachments)
+  ): Promise<void> {
+    this.requireIdle(conversationId)
+    const parts = await this.userParts(conversationId, text, attachments)
     if (!parts.length) throw new Error('消息不能为空')
+    const conv = this.requireIdle(conversationId)
 
     const withModel = this.ensureModel(conv)
     const user = this.store.addMessage({
@@ -100,18 +115,19 @@ export class ChatService {
     this.reply(conversationId, user)
   }
 
-  edit(
+  async edit(
     conversationId: string,
     userMessageId: string,
     text: string,
     attachments: Attachment[],
-  ): void {
+  ): Promise<void> {
     this.requireIdle(conversationId)
     const original = this.store.getMessage(userMessageId)
     if (!original || original.role !== 'user' || original.conversationId !== conversationId) {
       throw new Error('找不到要编辑的消息')
     }
-    const parts = userParts(text, attachments)
+    const parts = await this.userParts(conversationId, text, attachments)
+    this.requireIdle(conversationId)
     if (!parts.length) throw new Error('消息不能为空')
     const user = this.store.addMessage({
       conversationId,
@@ -130,11 +146,16 @@ export class ChatService {
     run.handle?.abort()
   }
 
-  approve(conversationId: string, toolCallId: string, decision: ApprovalDecision): void {
+  approve(
+    conversationId: string,
+    toolCallId: string,
+    decision: ApprovalDecision,
+    answers?: Record<string, string>,
+  ): void {
     const run = this.runs.get(conversationId)
     if (!run?.approvals.has(toolCallId)) throw new Error('该操作已不在等待确认')
     run.approvals.delete(toolCallId)
-    run.handle?.approve(toolCallId, decision)
+    run.handle?.approve(toolCallId, decision, answers)
     this.emit({ type: 'approval-resolved', conversationId, toolCallId })
   }
 
@@ -160,7 +181,65 @@ export class ChatService {
     for (const id of this.runs.keys()) this.stop(id)
   }
 
+  /**
+   * For app quit: stop every run and wait (up to `timeoutMs`) for each to end,
+   * so its final state is saved before the store closes. Anything that
+   * arrives later is ignored.
+   */
+  async shutdown(timeoutMs = 3000): Promise<void> {
+    this.stopAll()
+    if (this.runs.size)
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, timeoutMs)
+        this.onIdle.push(() => {
+          clearTimeout(timer)
+          resolve()
+        })
+      })
+    this.closed = true
+  }
+
+  /** The folder a conversation's agent works in: its worktree, project root, or workspace. */
+  folderOf(conversationId: string): string {
+    const conv = this.store.getConversation(conversationId)
+    if (!conv) throw new Error('对话不存在')
+    const project = conv.projectId ? this.store.getProject(conv.projectId) : undefined
+    return conv.worktreePath ?? project?.rootPath ?? this.workspaceDir(conversationId)
+  }
+
+  /** Files in the conversation's project (or workspace) matching `query`, for @-mentions. */
+  async findFiles(conversationId: string, query: string): Promise<string[]> {
+    if (!this.store.getConversation(conversationId)) return []
+    return this.fileIndex.search(this.folderOf(conversationId), query)
+  }
+
+  /** A message's parts; a leading `/name args` that names a command or skill is expanded. */
+  private async userParts(
+    conversationId: string,
+    text: string,
+    attachments: Attachment[],
+  ): Promise<MessagePart[]> {
+    const slash = /^\/([\w:.-]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
+    if (slash) {
+      const [, name, args = ''] = slash
+      const all = await this.commands(conversationId)
+      // A command wins over a skill of the same name, as in Claude Code.
+      const cmd =
+        all.find((s) => s.kind === 'command' && s.name === name) ??
+        all.find((s) => s.kind === 'skill' && s.name === name)
+      if (cmd) {
+        const prompt = await expandCommand(cmd, args)
+        return [
+          ...userParts('', attachments),
+          { type: 'command', name: cmd.name, args: args.trim(), prompt },
+        ]
+      }
+    }
+    return userParts(text, attachments)
+  }
+
   private requireIdle(conversationId: string): ConversationRow {
+    if (this.closed) throw new Error('应用正在退出')
     const conv = this.store.getConversation(conversationId)
     if (!conv) throw new Error('对话不存在')
     if (this.runs.has(conversationId)) throw new Error('正在生成回复，请先停止')
@@ -324,6 +403,7 @@ export class ChatService {
       }
       this.runs.delete(conversationId)
       this.emit({ type: 'run', conversationId, running: false, error })
+      if (!this.runs.size) for (const resolve of this.onIdle.splice(0)) resolve()
     }
 
     if (!creds) {
@@ -341,7 +421,7 @@ export class ChatService {
         })
         if (run.aborted) return end()
 
-        const cwd = project?.rootPath ?? this.workspaceDir(conversationId)
+        const cwd = conv.worktreePath ?? project?.rootPath ?? this.workspaceDir(conversationId)
         if (!project) await mkdir(cwd, { recursive: true })
 
         const request: AgentRunRequest = {
@@ -375,6 +455,7 @@ export class ChatService {
             computer: this.settings().computerUse,
             computerBlocked: this.settings().computerUse ? computerBlocked() : undefined,
             computerDisplay: this.settings().computerDisplay,
+            projectHooks: this.settings().projectHooks,
             imageModel: this.imageModel(),
           },
         }
@@ -455,7 +536,9 @@ export class ChatService {
         // Events are handled strictly in order, even while a screenshot is being saved.
         let queue: Promise<void> = Promise.resolve()
         const inOrder = (fn: () => void | Promise<void>) => {
-          queue = queue.then(fn).catch((err) => console.error('[chat] event failed', err))
+          queue = queue
+            .then(() => (this.closed ? undefined : fn()))
+            .catch((err) => console.error('[chat] event failed', err))
         }
 
         run.handle = this.agent.run(request, {

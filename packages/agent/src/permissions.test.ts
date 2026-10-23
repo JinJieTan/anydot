@@ -97,6 +97,9 @@ describe('decide', () => {
       'web_search',
       'web_fetch',
       'todo_write',
+      'ask_user',
+      'skill',
+      'task',
     ])
   })
 })

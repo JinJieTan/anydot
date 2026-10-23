@@ -1,5 +1,5 @@
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -26,12 +26,16 @@ import type { BlobStore } from './blobs'
 import type { ChatService } from './chat-service'
 import { exportData, importData } from './data-transfer'
 import type { AgentHost } from './agent-host'
+import type { ArtifactServer } from './artifacts'
+import type { Scheduler } from './scheduler'
 import type { AgentBrowser } from './browser'
 import type { ChromeBridge } from './chrome-bridge'
 import { exportExtensionZip, prepareInstall } from './chrome-extension'
 import { computerPermissions, requestComputerPermission } from './computer-permissions'
 import { openPreview } from './preview'
 import { emit } from './events'
+import { DEFAULT_SHORTCUT } from './shell-integration'
+import { addWorktree, changes, currentBranch, fileDiff, isRepo, removeWorktree } from './git'
 import type { ImageService } from './image-service'
 import type { McpService } from './mcp-service'
 import type { RemoteService } from './remote-service'
@@ -47,8 +51,16 @@ interface Deps {
   browser: AgentBrowser
   chromeExt: ChromeBridge
   agent: AgentHost
+  artifacts: ArtifactServer
+  scheduler: Scheduler
+  /** Applies tray / shortcut settings; returns an error when the shortcut can't be used. */
+  applyShell: (s: Settings) => string | null
   dbPath: string
 }
+
+/** Files the artifact panel may open. */
+const ARTIFACT_EXTS = new Set(['.html', '.htm', '.svg', '.md', '.markdown', '.mmd'])
+const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
 
 const SETTINGS_KEY = 'app.settings'
 
@@ -60,7 +72,11 @@ const MIME_EXT: Record<string, string> = {
 }
 
 export function loadSettings(store: Store): Settings {
-  return { ...DEFAULT_SETTINGS, ...store.getSetting<Partial<Settings>>(SETTINGS_KEY, {}) }
+  return {
+    ...DEFAULT_SETTINGS,
+    globalShortcut: DEFAULT_SHORTCUT,
+    ...store.getSetting<Partial<Settings>>(SETTINGS_KEY, {}),
+  }
 }
 
 function toDTO(p: ProviderRow): ProviderDTO {
@@ -122,6 +138,9 @@ export function registerIpc({
   browser,
   chromeExt,
   agent,
+  artifacts,
+  scheduler,
+  applyShell,
   dbPath,
 }: Deps): void {
   const getSettings = () => loadSettings(store)
@@ -140,8 +159,17 @@ export function registerIpc({
     }),
 
     'settings.get': getSettings,
+    'settings.defaultShortcut': () => DEFAULT_SHORTCUT,
     'settings.set': async (patch) => {
-      const next = { ...getSettings(), ...patch }
+      const prev = getSettings()
+      const next = { ...prev, ...patch }
+      if (patch.globalShortcut !== undefined || patch.trayIcon !== undefined) {
+        const error = applyShell(next)
+        if (error) {
+          applyShell(prev)
+          throw new Error(error)
+        }
+      }
       store.setSetting(SETTINGS_KEY, next)
       nativeTheme.themeSource = next.theme
       await chromeExt.setEnabled(next.browserTool && next.browserBackend === 'chrome')
@@ -230,6 +258,44 @@ export function registerIpc({
     },
 
     'projects.list': () => store.listProjects(),
+    'conversations.setWorktree': async (id, enabled) => {
+      const conv = store.getConversation(id)
+      const project = conv?.projectId ? store.getProject(conv.projectId) : undefined
+      if (!conv || !project) throw new Error('只有项目任务可以使用 worktree')
+      if (conv.activeLeafId) throw new Error('任务开始后不能再切换 worktree')
+      if (!!conv.worktreePath === enabled) return conv
+      if (!enabled) {
+        await removeWorktree(project.rootPath, conv.worktreePath!)
+        return store.updateConversation(id, { worktreePath: null, worktreeBranch: null })
+      }
+      if (!(await isRepo(project.rootPath))) throw new Error('项目文件夹不是 git 仓库')
+      const short = id.slice(-8)
+      const slug =
+        basename(project.rootPath)
+          .replace(/[^\w.-]+/g, '-')
+          .slice(0, 40) || 'project'
+      const path = join(app.getPath('userData'), 'worktrees', `${slug}-${short}`)
+      const branch = `aitech/${short}`
+      await mkdir(dirname(path), { recursive: true })
+      await addWorktree(project.rootPath, path, branch)
+      return store.updateConversation(id, { worktreePath: path, worktreeBranch: branch })
+    },
+    'git.changes': async (conversationId) => {
+      const folder = chat.folderOf(conversationId)
+      if (!(await isRepo(folder))) return { repo: false, branch: null, folder, files: [] }
+      return {
+        repo: true,
+        branch: await currentBranch(folder),
+        folder,
+        files: await changes(folder),
+      }
+    },
+    'git.diff': ({ conversationId, path }) => fileDiff(chat.folderOf(conversationId), path),
+    'schedules.list': () => scheduler.list(),
+    'schedules.create': (input) => scheduler.create(input),
+    'schedules.update': (id, patch) => scheduler.update(id, patch),
+    'schedules.delete': (id) => scheduler.delete(id),
+    'schedules.runNow': (id) => scheduler.runNow(id),
     'projects.create': async () => {
       const win = BrowserWindow.getFocusedWindow()
       const opts = {
@@ -283,10 +349,17 @@ export function registerIpc({
     },
     'conversations.update': (id, patch) => store.updateConversation(id, patch),
     'conversations.delete': async (id) => {
-      const plain = !store.getConversation(id)?.projectId
+      const conv = store.getConversation(id)
+      const plain = !conv?.projectId
       chat.stop(id)
       chat.clearJobs(id)
       store.deleteConversation(id)
+      // The branch stays; a worktree with uncommitted changes is left alone.
+      const root = conv?.projectId && store.getProject(conv.projectId)?.rootPath
+      if (conv?.worktreePath && root)
+        await removeWorktree(root, conv.worktreePath).catch((err: Error) =>
+          console.warn('[git] worktree kept:', err.message),
+        )
       if (plain) await rm(chat.workspaceDir(id), { recursive: true, force: true })
     },
     'conversations.revealWorkspace': async (id) => {
@@ -305,11 +378,13 @@ export function registerIpc({
     'chat.edit': ({ conversationId, userMessageId, text, attachments }) =>
       chat.edit(conversationId, userMessageId, text, attachments),
     'chat.stop': (conversationId) => chat.stop(conversationId),
+    'chat.commands': (conversationId) => chat.commands(conversationId),
+    'chat.files': ({ conversationId, query }) => chat.findFiles(conversationId, query),
     'chat.switchBranch': ({ conversationId, messageId }) =>
       chat.switchBranch(conversationId, messageId),
     'chat.running': () => chat.runningConversations(),
-    'chat.approve': ({ conversationId, toolCallId, decision }) =>
-      chat.approve(conversationId, toolCallId, decision),
+    'chat.approve': ({ conversationId, toolCallId, decision, answers }) =>
+      chat.approve(conversationId, toolCallId, decision, answers),
     'chat.approvals': () => chat.pendingApprovals(),
     'chat.rewindFiles': ({ conversationId, messageId, dryRun }) =>
       chat.rewindFiles(conversationId, messageId, !!dryRun),
@@ -327,6 +402,13 @@ export function registerIpc({
     'mcp.delete': (id) => mcp.remove(id),
 
     'preview.html': (html) => openPreview(html),
+    'artifact.url': (html) => artifacts.put(html),
+    'artifact.readFile': async ({ conversationId, path: p }) => {
+      const path = resolve(chat.folderOf(conversationId), p)
+      if (!ARTIFACT_EXTS.has(extname(path).toLowerCase())) throw new Error('不支持预览这种文件')
+      if ((await stat(path)).size > MAX_ARTIFACT_BYTES) throw new Error('文件过大，无法预览')
+      return { path, content: await readFile(path, 'utf8') }
+    },
 
     'browser.show': () => browser.show(),
     'chromeExt.status': () => chromeExt.status(),

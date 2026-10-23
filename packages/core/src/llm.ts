@@ -215,6 +215,11 @@ export async function toModelMessages(
       const content: Exclude<UserContent, string> = []
       for (const part of msg.parts) {
         if (part.type === 'text') content.push({ type: 'text', text: part.text })
+        else if (part.type === 'command')
+          content.push({
+            type: 'text',
+            text: `<command-name>/${part.name}</command-name>${part.args ? `\n<command-args>${part.args}</command-args>` : ''}\n\n${part.prompt}`,
+          })
         else if (part.type === 'image')
           content.push({ type: 'image', image: await loadBlob(part.blob), mediaType: part.mime })
         else if (part.type === 'file') {

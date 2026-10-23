@@ -6,6 +6,7 @@ import type { BrowserCommand } from '@aitech/agent'
 import { newId } from '@aitech/core'
 import { openDatabase, Store } from '@aitech/db'
 import { AgentHost } from './agent-host'
+import { ARTIFACT_SCHEME, ArtifactServer } from './artifacts'
 import { BlobStore } from './blobs'
 import { AgentBrowser } from './browser'
 import { ChromeBridge } from './chrome-bridge'
@@ -20,7 +21,10 @@ import { emit } from './events'
 import { ImageService } from './image-service'
 import { loadSettings, registerIpc } from './ipc'
 import { McpService } from './mcp-service'
+import { Notifier } from './notifier'
 import { RemoteService } from './remote-service'
+import { Scheduler } from './scheduler'
+import { ShellIntegration } from './shell-integration'
 
 /** Serves local blobs to the renderer as aitech-blob://blob/<sha256>. */
 const BLOB_SCHEME = 'aitech-blob'
@@ -30,7 +34,10 @@ if (process.env['AITECH_USER_DATA']) app.setPath('userData', process.env['AITECH
 
 protocol.registerSchemesAsPrivileged([
   { scheme: BLOB_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: ARTIFACT_SCHEME, privileges: { standard: true, secure: true } },
 ])
+
+const artifacts = new ArtifactServer()
 
 const agent = new AgentHost()
 const browser = new AgentBrowser()
@@ -58,7 +65,35 @@ let store: Store | null = null
 let chat: ChatService | null = null
 let images: ImageService | null = null
 let remote: RemoteService | null = null
+let scheduler: Scheduler | null = null
 let mainWindow: BrowserWindow | null = null
+
+/** Bring the main window forward (creating it if needed); resolves once its page has loaded. */
+function showWindow(): Promise<BrowserWindow> {
+  let win = mainWindow
+  if (!win) {
+    createWindow()
+    win = mainWindow!
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  const w = win
+  return w.webContents.isLoading()
+    ? new Promise((resolve) => w.webContents.once('did-finish-load', () => resolve(w)))
+    : Promise.resolve(w)
+}
+
+const shellIntegration = new ShellIntegration({
+  show: () => void showWindow(),
+  newChat: () => void showWindow().then(() => emit('app-command', { command: 'new-chat' })),
+  settings: () => void showWindow().then(() => emit('app-command', { command: 'settings' })),
+  isFocused: () => !!mainWindow?.isFocused() && mainWindow.isVisible(),
+  hide: () => {
+    if (process.platform === 'darwin') app.hide()
+    else mainWindow?.minimize()
+  },
+})
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -181,6 +216,13 @@ if (!app.requestSingleInstanceLock()) {
       }
     })
 
+    const notifier = new Notifier(
+      s,
+      () => loadSettings(s).notifications,
+      () => mainWindow,
+      (conversationId) => emit('open-conversation', { conversationId }),
+    )
+    artifacts.register()
     const mcp = new McpService(s, agent, (status) => emit('mcp', status))
     agent.start()
     chat = new ChatService(
@@ -191,6 +233,7 @@ if (!app.requestSingleInstanceLock()) {
       (e) => {
         emit('chat', e)
         remote?.onChatEvent(e)
+        notifier.onChatEvent(e)
       },
       join(app.getPath('userData'), 'workspaces'),
     )
@@ -203,6 +246,15 @@ if (!app.requestSingleInstanceLock()) {
       (status) => emit('remote', status),
       (req) => emit('remote-pair', req),
     )
+    scheduler = new Scheduler(
+      s,
+      chat,
+      () => loadSettings(s),
+      () => {
+        emit('invalidate', { scope: 'schedules' })
+        emit('invalidate', { scope: 'conversations' })
+      },
+    )
     registerIpc({
       store: s,
       blobs,
@@ -213,6 +265,9 @@ if (!app.requestSingleInstanceLock()) {
       browser,
       chromeExt,
       agent,
+      artifacts,
+      scheduler,
+      applyShell: (settings) => shellIntegration.apply(settings),
       dbPath: opened.dbPath,
     })
     void refreshInstalledExtension().catch(() => {})
@@ -222,6 +277,9 @@ if (!app.requestSingleInstanceLock()) {
       .catch((err: Error) => console.error('[chrome-ext]', err.message))
     createWindow()
     void remote.restart()
+    scheduler.start()
+    const shellError = shellIntegration.apply(loadSettings(s))
+    if (shellError) console.warn('[shortcut]', shellError)
 
     app.on('activate', () => {
       if (!mainWindow) createWindow()
@@ -229,17 +287,30 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    // With the tray icon on, keep running in the background (scheduled tasks, phone).
+    if (process.platform !== 'darwin' && !(store && loadSettings(store).trayIcon)) app.quit()
   })
 
-  app.on('before-quit', () => {
-    chat?.stopAll()
+  // Quit in order: let running replies save their final state, then stop the
+  // agent process (its exit would report more events), then close the store.
+  let shutDown = false
+  app.on('before-quit', (event) => {
+    if (shutDown) return
+    event.preventDefault()
+    shutDown = true
+    scheduler?.stop()
+    shellIntegration.dispose()
     images?.stopAll()
     remote?.stop()
-    agent.stop()
-    browser.close()
-    chromeExt.stop()
-    webSearch.close()
-    store?.db.close()
+    void (chat?.shutdown() ?? Promise.resolve())
+      .catch((err: unknown) => console.error('[quit]', err))
+      .finally(() => {
+        agent.stop()
+        browser.close()
+        chromeExt.stop()
+        webSearch.close()
+        store?.db.close()
+        app.quit()
+      })
   })
 }

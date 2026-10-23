@@ -15,7 +15,11 @@ export interface RunHandlers {
 export interface RunHandle {
   runId: string
   abort: () => void
-  approve: (toolCallId: string, decision: ApprovalDecision) => void
+  approve: (
+    toolCallId: string,
+    decision: ApprovalDecision,
+    answers?: Record<string, string>,
+  ) => void
 }
 
 /** Owns the agent utilityProcess and restarts it if it exits unexpectedly. */
@@ -152,8 +156,9 @@ export class AgentHost {
       abort: () => {
         if (this.runs.has(runId)) this.post({ type: 'run.abort', runId })
       },
-      approve: (toolCallId, decision) => {
-        if (this.runs.has(runId)) this.post({ type: 'run.approve', runId, toolCallId, decision })
+      approve: (toolCallId, decision, answers) => {
+        if (this.runs.has(runId))
+          this.post({ type: 'run.approve', runId, toolCallId, decision, answers })
       },
     }
   }

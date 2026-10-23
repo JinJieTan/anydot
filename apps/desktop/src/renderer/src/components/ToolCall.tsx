@@ -14,7 +14,11 @@ import {
   ImageIcon,
   ListTodo,
   Loader2,
+  MessageCircleQuestion,
+  Bot,
+  Sparkles,
   Monitor,
+  Play,
   Search,
   ShieldQuestion,
   Terminal,
@@ -23,6 +27,7 @@ import {
 import { useState, type ReactNode } from 'react'
 import type { ApprovalDecision, ApprovalDTO } from '../../../shared/ipc'
 import { blobUrl, invoke } from '../lib/api'
+import { artifactKind, useArtifact } from '../lib/artifact'
 import { attempt } from '../store/app'
 import { Button } from './ui'
 
@@ -65,6 +70,13 @@ const META: Record<string, { icon: ReactNode; summary: (i: Input) => string }> =
     summary: (i) => `生成图片：${s(i.prompt).slice(0, 60)}`,
   },
   todo_write: { icon: <ListTodo className="size-3.5" />, summary: () => '任务列表' },
+  ask_user: {
+    icon: <MessageCircleQuestion className="size-3.5" />,
+    summary: (i) =>
+      `提问：${Array.isArray(i.questions) ? s((i.questions[0] as Input | undefined)?.question) : ''}`,
+  },
+  task: { icon: <Bot className="size-3.5" />, summary: (i) => `子任务：${s(i.description)}` },
+  skill: { icon: <Sparkles className="size-3.5" />, summary: (i) => `使用技能 ${s(i.name)}` },
   browser_navigate: {
     icon: <AppWindow className="size-3.5" />,
     summary: (i) => `打开 ${s(i.url)}`,
@@ -179,7 +191,110 @@ function InputView({ name, input }: { name: string; input: Input }) {
   }
   if (name === 'write_file') return <Pre tone="add">{s(input.content)}</Pre>
   if (name === 'bash') return <Pre>$ {s(input.command)}</Pre>
+  if (name === 'task') return <Pre>{s(input.prompt)}</Pre>
   return <Pre>{JSON.stringify(input, null, 2)}</Pre>
+}
+
+type Question = NonNullable<ApprovalDTO['questions']>[number]
+
+/** The ask_user tool waiting for answers: options per question, plus a free-text answer. */
+function QuestionCard({ approval }: { approval: ApprovalDTO }) {
+  const questions = approval.questions ?? []
+  const [picked, setPicked] = useState<Record<string, string[]>>({})
+  const [other, setOther] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+
+  const answerOf = (q: Question) =>
+    other[q.question]?.trim() || (picked[q.question] ?? []).join(', ')
+  const complete = questions.every((q) => answerOf(q))
+
+  const toggle = (q: Question, label: string) => {
+    setOther((o) => ({ ...o, [q.question]: '' }))
+    setPicked((p) => {
+      const cur = p[q.question] ?? []
+      const next = q.multiSelect
+        ? cur.includes(label)
+          ? cur.filter((l) => l !== label)
+          : [...cur, label]
+        : [label]
+      return { ...p, [q.question]: next }
+    })
+  }
+
+  const reply = async (decision: ApprovalDecision) => {
+    setBusy(true)
+    await attempt(() =>
+      invoke('chat.approve', {
+        conversationId: approval.conversationId,
+        toolCallId: approval.toolCallId,
+        decision,
+        answers:
+          decision === 'allow'
+            ? Object.fromEntries(questions.map((q) => [q.question, answerOf(q)]))
+            : undefined,
+      }),
+    )
+    setBusy(false)
+  }
+
+  return (
+    <div className="my-1.5 space-y-4 rounded-xl border border-accent/40 bg-accent/4 p-3 text-sm">
+      {questions.map((q) => (
+        <div key={q.question}>
+          <div className="mb-2 flex items-start gap-2">
+            <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-accent" />
+            <div className="min-w-0">
+              {q.header && <div className="text-[11px] text-fg-faint">{q.header}</div>}
+              <div className="font-medium">{q.question}</div>
+              {q.multiSelect && <div className="text-xs text-fg-faint">可多选</div>}
+            </div>
+          </div>
+          <div className="grid gap-1.5 pl-6">
+            {q.options.map((o) => {
+              const on = (picked[q.question] ?? []).includes(o.label) && !other[q.question]?.trim()
+              return (
+                <button
+                  key={o.label}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => toggle(q, o.label)}
+                  className={clsx(
+                    'rounded-lg border px-3 py-2 text-left transition-colors',
+                    on ? 'border-accent bg-accent/8' : 'border-line hover:bg-muted/60',
+                  )}
+                >
+                  <div className="font-medium">{o.label}</div>
+                  {o.description && (
+                    <div className="mt-0.5 text-xs text-fg-soft">{o.description}</div>
+                  )}
+                </button>
+              )
+            })}
+            <input
+              value={other[q.question] ?? ''}
+              disabled={busy}
+              placeholder="其他（自己填写）"
+              onChange={(e) => setOther((o) => ({ ...o, [q.question]: e.target.value }))}
+              className="rounded-lg border border-line bg-surface px-3 py-2 outline-none focus:border-accent"
+            />
+          </div>
+        </div>
+      ))}
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reply('deny')}>
+          跳过
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={busy || !complete}
+          onClick={() => void reply('allow')}
+        >
+          提交回答
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 interface Todo {
@@ -220,9 +335,12 @@ export function ToolCall({
   result,
   approval,
   running,
+  conversationId,
 }: {
   name: string
   input: unknown
+  /** Lets files the agent wrote (HTML, SVG, Markdown) open in the artifact panel. */
+  conversationId?: string
   result?: ToolResultPart
   approval?: ApprovalDTO
   /** The run is still going, so a call without result is in progress. */
@@ -234,6 +352,7 @@ export function ToolCall({
 
   if (name === 'todo_write' && Array.isArray(inp.todos))
     return <TodoList todos={inp.todos as Todo[]} />
+  if (approval?.questions) return <QuestionCard approval={approval} />
 
   const status: 'pending' | 'waiting' | 'ok' | 'error' | 'interrupted' = approval
     ? 'waiting'
@@ -260,6 +379,19 @@ export function ToolCall({
 
   const meta = META[name]
   const expanded = open || status === 'waiting'
+  const file = (name === 'write_file' || name === 'edit_file') && s(inp.path)
+  const fileKind = file ? artifactKind(file.split('.').pop() ?? '') : null
+  const openFile = async () => {
+    if (!file || !fileKind || !conversationId) return
+    const res = await attempt(() => invoke('artifact.readFile', { conversationId, path: file }))
+    if (res)
+      useArtifact.getState().open({
+        title: file.split(/[\\/]/).pop()!,
+        kind: fileKind,
+        content: res.content,
+        file: { conversationId, path: res.path },
+      })
+  }
 
   return (
     <div
@@ -283,6 +415,27 @@ export function ToolCall({
         >
           {toolSummary(name, input)}
         </span>
+        {fileKind && conversationId && status === 'ok' && (
+          <span
+            role="button"
+            tabIndex={0}
+            title="在侧栏中预览"
+            onClick={(e) => {
+              e.stopPropagation()
+              void openFile()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.stopPropagation()
+                void openFile()
+              }
+            }}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-fg-faint hover:bg-muted hover:text-fg"
+          >
+            <Play className="size-3" />
+            预览
+          </span>
+        )}
         {status === 'pending' && <Loader2 className="size-3.5 animate-spin text-fg-faint" />}
         {status === 'waiting' && <ShieldQuestion className="size-3.5 text-amber-600" />}
         {status === 'ok' && <Check className="size-3.5 text-emerald-600" />}

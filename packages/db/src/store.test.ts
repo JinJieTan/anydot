@@ -226,3 +226,32 @@ describe('trusted devices', () => {
     expect(store.getTrustedDevice('d1')?.name).toBe('iPhone 2')
   })
 })
+
+describe('schedules', () => {
+  it('creates, updates and soft-deletes; deleting the project removes its schedules', () => {
+    const p = store.createProject({ name: 'p', rootPath: '/tmp/p' })
+    const s = store.createSchedule({
+      name: 'Daily report',
+      projectId: p.id,
+      prompt: 'summarise yesterday',
+      cron: '0 9 * * *',
+      modelId: null,
+      nextRunAt: 5_000,
+    })
+    expect(s).toMatchObject({ enabled: true, nextRunAt: 5_000, lastRunAt: null })
+    const u = store.updateSchedule(s.id, { enabled: false, lastRunAt: 4_000, lastError: 'x' })
+    expect(u).toMatchObject({ enabled: false, lastRunAt: 4_000, lastError: 'x', cron: '0 9 * * *' })
+    const chat = store.createSchedule({
+      name: 'c',
+      projectId: null,
+      prompt: 'hi',
+      cron: '* * * * *',
+      modelId: null,
+      nextRunAt: null,
+    })
+    store.deleteProject(p.id)
+    expect(store.listSchedules().map((x) => x.id)).toEqual([chat.id])
+    store.deleteSchedule(chat.id)
+    expect(store.getSchedule(chat.id)).toBeUndefined()
+  })
+})

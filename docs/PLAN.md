@@ -198,6 +198,18 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] 撤销文件改动：edit_file / write_file / generate_image 改动前备份，可在用户消息上撤销此后的改动（bash 的改动不追踪）
 - [x] 联网搜索：隐藏窗口加载 Bing（www → cn → Google 兜底）并提取结果，免 Key、所有模型可用
 - [x] 原生搜索：官方 Anthropic / OpenAI 接口使用服务端搜索，中转站继续用 Bing 抓取
+- [x] 系统通知：窗口不在前台时，任务完成 / 出错 / 需要确认会弹通知，点击回到对应对话
+- [x] Skills 与斜杠命令：兼容 Claude Code 目录（项目 `.aitech/`、`.claude/` 与用户 `~/.aitech/`、`~/.claude/` 下的 `skills/*/SKILL.md`、`commands/*.md`）；模型用 skill 工具按需加载，输入框 `/` 弹出菜单
+- [x] 全局指令：`~/.aitech/AGENTS.md`、`~/.claude/CLAUDE.md` 对所有项目和对话生效
+- [x] `@` 引用文件：输入框 `@` 搜索项目文件 / 文件夹（git ls-files，遵守 .gitignore）
+- [x] 子 Agent：task 工具在独立上下文里做只读调研并只返回报告，同一轮的多个 task 并行；其审批显示在父任务卡片上
+- [x] ask_user：Agent 用选择题向用户提问（桌面端和手机端都能回答），走审批通道
+- [x] Artifacts 侧栏：HTML / SVG / Mermaid / Markdown 代码块和 Agent 写出的文件在侧栏预览；页面在独立协议的沙箱 iframe 中运行（不能访问应用，不能发网络请求）
+- [x] 定时任务：cron 规则（每小时 / 每天 / 工作日 / 每周 / 自定义），到点新建对话执行；错过的任务启动时补跑一次
+- [x] 改动面板 + worktree：项目任务可在独立 git worktree（新分支）中运行；侧栏显示未提交改动和 diff
+- [x] Hooks：兼容 Claude Code 的 PreToolUse / PostToolUse / Stop；项目内的 Hooks 默认不运行
+- [x] 全局快捷键（新建对话）与菜单栏 / 托盘图标；Windows 开启托盘时关窗后继续后台运行
+- [ ] 内置终端、语音输入
 - [x] Computer use 多显示器：设置中选默认显示器，Agent 可用 computer_display 切换
 - [x] Windows 命令沙箱（实验性，默认关闭）：写入受限令牌 + 沙箱 SID 的 ACL，只限制写入
 - [x] Windows CI 验证：沙箱（项目内可写、项目外 / git hooks 不可写）、电脑操作驱动（显示器、截图、鼠标）

@@ -7,16 +7,19 @@ import { modelLabel } from '../components/ModelPicker'
 import { AutomationTab } from '../components/Automation'
 import { McpTab } from '../components/Mcp'
 import { RemoteTab } from '../components/Remote'
+import { SchedulesTab } from '../components/Schedules'
 import { Badge, Button, Field, IconButton, Input, Select, Spinner, Toggle } from '../components/ui'
-import { invoke } from '../lib/api'
+import { invoke, isMac } from '../lib/api'
 import { attempt, succeeded, useApp } from '../store/app'
 
-type Tab = 'providers' | 'mcp' | 'automation' | 'remote' | 'general' | 'data' | 'about'
+type Tab =
+  'providers' | 'mcp' | 'automation' | 'schedules' | 'remote' | 'general' | 'data' | 'about'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: '服务商与模型' },
   { id: 'mcp', label: 'MCP 工具' },
   { id: 'automation', label: 'Agent 能力' },
+  { id: 'schedules', label: '定时任务' },
   { id: 'remote', label: '手机连接' },
   { id: 'general', label: '通用' },
   { id: 'data', label: '数据' },
@@ -52,6 +55,7 @@ export function SettingsView() {
           {tab === 'providers' && <ProvidersTab />}
           {tab === 'mcp' && <McpTab />}
           {tab === 'automation' && <AutomationTab />}
+          {tab === 'schedules' && <SchedulesTab />}
           {tab === 'remote' && <RemoteTab />}
           {tab === 'general' && <GeneralTab />}
           {tab === 'data' && <DataTab />}
@@ -504,6 +508,90 @@ function ModelList({ provider }: { provider: ProviderDTO }) {
 
 // ── general ──────────────────────────────────────────────────
 
+const KEY_NAMES: Record<string, string> = {
+  ' ': 'Space',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Escape: 'Esc',
+  Enter: 'Return',
+}
+
+/** Electron accelerator for a key press, or null while only modifiers are down. */
+function accelerator(e: KeyboardEvent): string | null {
+  if (['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) return null
+  const code = e.code
+  const key = code.startsWith('Key')
+    ? code.slice(3)
+    : code.startsWith('Digit')
+      ? code.slice(5)
+      : /^F\d+$/.test(code)
+        ? code
+        : (KEY_NAMES[e.key] ?? (e.key.length === 1 ? e.key.toUpperCase() : null))
+  if (!key) return null
+  const mods = [
+    e.metaKey && (isMac ? 'Command' : 'Super'),
+    e.ctrlKey && 'Control',
+    e.altKey && 'Alt',
+    e.shiftKey && 'Shift',
+  ].filter(Boolean)
+  // A bare key would fire while typing anywhere.
+  if (!mods.length && !/^F\d+$/.test(key)) return null
+  return [...mods, key].join('+')
+}
+
+const pretty = (acc: string) =>
+  isMac
+    ? acc
+        .replace('Command', '⌘')
+        .replace('Control', '⌃')
+        .replace('Alt', '⌥')
+        .replace('Shift', '⇧')
+        .replace(/\+/g, ' ')
+    : acc
+
+function ShortcutInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [recording, setRecording] = useState(false)
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setRecording(true)}
+        onBlur={() => setRecording(false)}
+        onKeyDown={(e) => {
+          if (!recording) return
+          e.preventDefault()
+          if (e.key === 'Escape') return setRecording(false)
+          const acc = accelerator(e.nativeEvent)
+          if (acc) {
+            setRecording(false)
+            onChange(acc)
+          }
+        }}
+        className={clsx(
+          'h-9 min-w-40 rounded-lg border px-3 text-left font-mono text-sm',
+          recording ? 'border-accent text-fg-soft' : 'border-line',
+        )}
+      >
+        {recording ? '按下快捷键…' : value ? pretty(value) : '未设置'}
+      </button>
+      {value && (
+        <Button size="sm" variant="ghost" onClick={() => onChange('')}>
+          关闭
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => void invoke('settings.defaultShortcut').then(onChange)}
+      >
+        恢复默认
+      </Button>
+    </div>
+  )
+}
+
 function GeneralTab() {
   const { settings, updateSettings, models } = useApp()
   const chatModels = models.filter((m) => m.capabilities.includes('chat'))
@@ -521,6 +609,36 @@ function GeneralTab() {
           <option value="light">浅色</option>
           <option value="dark">深色</option>
         </Select>
+      </Field>
+      <Field
+        label="全局快捷键"
+        hint="在任何应用中按下即可打开 aitech 并新建对话；aitech 在前台时再按一次会隐藏"
+      >
+        <ShortcutInput
+          value={settings.globalShortcut}
+          onChange={(globalShortcut) => void succeeded(() => updateSettings({ globalShortcut }))}
+        />
+      </Field>
+      <Field
+        label={isMac ? '菜单栏图标' : '托盘图标'}
+        hint={
+          isMac
+            ? '在菜单栏显示图标，可以快速新建对话'
+            : '在托盘显示图标；开启时关闭窗口后 aitech 继续在后台运行（定时任务、手机连接）'
+        }
+      >
+        <Toggle
+          checked={settings.trayIcon}
+          label="显示图标"
+          onChange={(trayIcon) => void succeeded(() => updateSettings({ trayIcon }))}
+        />
+      </Field>
+      <Field label="系统通知" hint="窗口不在前台时，任务完成、出错或需要确认会弹出系统通知">
+        <Toggle
+          checked={settings.notifications}
+          label="开启系统通知"
+          onChange={(notifications) => set({ notifications })}
+        />
       </Field>
       <Field label="默认对话模型" hint="新对话默认使用的模型">
         <Select

@@ -1,4 +1,4 @@
-import { AppWindow, Monitor, ShieldCheck } from 'lucide-react'
+import { AppWindow, Monitor, ShieldCheck, Webhook } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ChromeExtStatus, ComputerPermissions, DisplayInfo } from '../../../shared/ipc'
 import { api, invoke } from '../lib/api'
@@ -298,6 +298,30 @@ export function AutomationTab() {
             />
           </div>
         )}
+      </section>
+
+      <section>
+        <div className="flex items-center gap-3">
+          <Webhook className="size-4 text-fg-soft" />
+          <h2 className="text-base font-semibold">Hooks</h2>
+          <div className="ml-auto">
+            <Toggle
+              checked={settings.projectHooks}
+              label="运行项目中的 Hooks"
+              onChange={(projectHooks) => void updateSettings({ projectHooks })}
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-fg-soft">
+          在 Agent 调用工具前后（PreToolUse / PostToolUse）和结束时（Stop）运行你配置的命令，格式与
+          Claude Code 相同，写在 <code>~/.aitech/settings.json</code> 或{' '}
+          <code>~/.claude/settings.json</code> 的 <code>hooks</code> 中。命令退出码为 2
+          时会拦截这次调用，或把输出反馈给 Agent。
+        </p>
+        <p className="mt-2 text-sm leading-relaxed text-fg-soft">
+          项目自带的 <code>.claude/settings.json</code>、<code>.aitech/settings.json</code> 里的
+          Hooks 默认不运行：它们来自仓库，会在你的电脑上执行任意命令。只在信任所有项目时开启。
+        </p>
       </section>
     </div>
   )

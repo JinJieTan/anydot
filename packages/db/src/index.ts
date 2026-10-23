@@ -52,5 +52,7 @@ export type {
   PermissionMode,
   ProjectRow,
   ProviderRow,
+  ScheduleInput,
+  ScheduleRow,
   TrustedDeviceRow,
 } from './store'

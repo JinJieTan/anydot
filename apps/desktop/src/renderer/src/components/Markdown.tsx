@@ -3,7 +3,7 @@ import { memo, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
-import { invoke } from '../lib/api'
+import { artifactKind, useArtifact } from '../lib/artifact'
 
 function textContent(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -33,6 +33,15 @@ export function CopyButton({ text, className }: { text: string; className?: stri
   )
 }
 
+/** The page's <title> or first heading, else the language. */
+function artifactTitle(code: string, lang: string): string {
+  const m =
+    /<title>([^<]+)<\/title>/i.exec(code) ??
+    /<h1[^>]*>([^<]+)<\/h1>/i.exec(code) ??
+    /^#\s+(.+)$/m.exec(code)
+  return m?.[1]?.trim() || `${lang.toUpperCase()} 预览`
+}
+
 const components: Components = {
   pre({ children }) {
     const code = Array.isArray(children) ? children[0] : children
@@ -46,12 +55,18 @@ const components: Components = {
         <div className="flex h-8 items-center justify-between border-b border-line px-3 text-xs text-fg-faint">
           <span>{lang || 'text'}</span>
           <div className="flex items-center gap-1">
-            {(lang === 'html' || lang === 'svg') && (
+            {artifactKind(lang) && (
               <button
                 type="button"
-                title="在独立窗口中预览"
+                title="在侧栏中预览"
                 className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-muted hover:text-fg"
-                onClick={() => void invoke('preview.html', textContent(children))}
+                onClick={() =>
+                  useArtifact.getState().open({
+                    title: artifactTitle(textContent(children), lang),
+                    kind: artifactKind(lang)!,
+                    content: textContent(children).replace(/\n$/, ''),
+                  })
+                }
               >
                 <Play className="size-3" />
                 预览

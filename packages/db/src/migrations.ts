@@ -116,4 +116,23 @@ export const migrations: readonly string[] = [
     revoked_at INTEGER
   );
   `,
+  /* 4: scheduled tasks; conversations running in their own git worktree */ `
+  ALTER TABLE conversations ADD COLUMN worktree_path TEXT;
+  ALTER TABLE conversations ADD COLUMN worktree_branch TEXT;
+
+  CREATE TABLE schedules (
+    id                   TEXT PRIMARY KEY,
+    name                 TEXT NOT NULL,
+    project_id           TEXT REFERENCES projects(id),
+    prompt               TEXT NOT NULL,
+    cron                 TEXT NOT NULL,
+    model_id             TEXT REFERENCES models(id),
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    next_run_at          INTEGER,
+    last_run_at          INTEGER,
+    last_conversation_id TEXT,
+    last_error           TEXT,
+    ${SYNC_COLUMNS}
+  );
+  `,
 ]

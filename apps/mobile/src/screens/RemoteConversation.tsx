@@ -139,13 +139,14 @@ export function RemoteConversationScreen({
               running={running}
               result={(id) => results.get(`${m.id}:${id}`)}
               approval={(id) => approvals.find((a) => a.toolCallId === id)}
-              onDecide={async (a, decision) => {
+              onDecide={async (a, decision, answers) => {
                 if (!hub) return
                 await attempt(() =>
                   hub.rpc(desktop, 'chat.approve', {
                     conversationId,
                     toolCallId: a.toolCallId,
                     decision,
+                    answers,
                   }),
                 )
               }}
@@ -175,7 +176,15 @@ export function RemoteConversationScreen({
 }
 
 function UserBubble({ message }: { message: RMessage }) {
-  const text = message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
+  const text = message.parts
+    .map((p) =>
+      p.type === 'text'
+        ? p.text
+        : p.type === 'command'
+          ? `/${p.name}${p.args ? ` ${p.args}` : ''}`
+          : '',
+    )
+    .join('')
   const images = message.parts.filter((p) => p.type === 'image').length
   return (
     <div className="flex justify-end">
@@ -198,7 +207,11 @@ function AssistantBlock({
   running: boolean
   result: (toolCallId: string) => Extract<MessagePart, { type: 'tool_result' }> | undefined
   approval: (toolCallId: string) => RApproval | undefined
-  onDecide: (a: RApproval, decision: 'allow' | 'deny' | 'allow-always') => Promise<void>
+  onDecide: (
+    a: RApproval,
+    decision: 'allow' | 'deny' | 'allow-always',
+    answers?: Record<string, string>,
+  ) => Promise<void>
 }) {
   const [showThinking, setShowThinking] = useState(false)
   const text = message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
@@ -267,7 +280,11 @@ function ToolRow({
   result?: Extract<MessagePart, { type: 'tool_result' }>
   approval?: RApproval
   running: boolean
-  onDecide: (a: RApproval, decision: 'allow' | 'deny' | 'allow-always') => Promise<void>
+  onDecide: (
+    a: RApproval,
+    decision: 'allow' | 'deny' | 'allow-always',
+    answers?: Record<string, string>,
+  ) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -291,6 +308,8 @@ function ToolRow({
       </div>
     )
   }
+
+  if (approval?.questions) return <Questions approval={approval} onDecide={onDecide} />
 
   const decide = async (d: 'allow' | 'deny' | 'allow-always') => {
     if (!approval) return
@@ -372,6 +391,95 @@ function ToolRow({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** ask_user: tap an option per question (or type an answer), then submit. */
+function Questions({
+  approval,
+  onDecide,
+}: {
+  approval: RApproval
+  onDecide: (
+    a: RApproval,
+    decision: 'allow' | 'deny',
+    answers?: Record<string, string>,
+  ) => Promise<void>
+}) {
+  const questions = approval.questions ?? []
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const complete = questions.every((q) => answers[q.question]?.trim())
+  const reply = async (decision: 'allow' | 'deny') => {
+    setBusy(true)
+    await onDecide(approval, decision, decision === 'allow' ? answers : undefined)
+    setBusy(false)
+  }
+  return (
+    <div className="space-y-3 rounded-xl border border-accent/50 bg-surface p-3 text-sm">
+      {questions.map((q) => {
+        const cur = answers[q.question] ?? ''
+        const chosen = cur.split(', ')
+        return (
+          <div key={q.question} className="space-y-1.5">
+            <div className="font-medium">{q.question}</div>
+            {q.options.map((o) => {
+              const on = chosen.includes(o.label)
+              return (
+                <button
+                  key={o.label}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    const next = q.multiSelect
+                      ? on
+                        ? chosen.filter((l) => l && l !== o.label)
+                        : [
+                            ...chosen.filter((l) => l && q.options.some((x) => x.label === l)),
+                            o.label,
+                          ]
+                      : [o.label]
+                    setAnswers((a) => ({ ...a, [q.question]: next.join(', ') }))
+                  }}
+                  className={clsx(
+                    'block w-full rounded-lg border px-3 py-2 text-left',
+                    on ? 'border-accent bg-accent/10' : 'border-line',
+                  )}
+                >
+                  <div className="font-medium">{o.label}</div>
+                  {o.description && <div className="text-xs text-fg-soft">{o.description}</div>}
+                </button>
+              )
+            })}
+            <input
+              value={q.options.some((o) => chosen.includes(o.label)) ? '' : cur}
+              placeholder="其他（自己填写）"
+              disabled={busy}
+              onChange={(e) => setAnswers((a) => ({ ...a, [q.question]: e.target.value }))}
+              className="w-full rounded-lg border border-line bg-transparent px-3 py-2 outline-none"
+            />
+          </div>
+        )
+      })}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void reply('deny')}
+          className="rounded-lg px-3 py-1.5 text-fg-soft"
+        >
+          跳过
+        </button>
+        <button
+          type="button"
+          disabled={busy || !complete}
+          onClick={() => void reply('allow')}
+          className="rounded-lg bg-accent px-3 py-1.5 text-white disabled:opacity-40"
+        >
+          提交回答
+        </button>
+      </div>
     </div>
   )
 }

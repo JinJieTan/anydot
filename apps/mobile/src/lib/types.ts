@@ -30,6 +30,13 @@ export interface RApproval {
   summary: string
   reason: string
   danger: boolean
+  /** An ask_user question set: answered instead of allowed or denied. */
+  questions?: {
+    question: string
+    header?: string
+    options: { label: string; description?: string }[]
+    multiSelect?: boolean
+  }[]
 }
 
 export interface RProject {

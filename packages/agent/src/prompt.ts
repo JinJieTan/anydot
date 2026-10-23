@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { PermissionMode } from './permissions'
+import type { Skill } from './skills'
 
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', '.aitech/instructions.md']
 
@@ -16,6 +18,37 @@ export async function loadProjectInstructions(cwd: string): Promise<string> {
     }
   }
   return parts.join('\n\n')
+}
+
+const USER_INSTRUCTION_FILES = ['.aitech/AGENTS.md', '.claude/CLAUDE.md']
+
+/** The user's own instructions for every project and chat (~/.aitech/AGENTS.md, ~/.claude/CLAUDE.md). */
+export async function loadUserInstructions(home = homedir()): Promise<string> {
+  const parts: string[] = []
+  for (const name of USER_INSTRUCTION_FILES) {
+    try {
+      const text = (await readFile(join(home, name), 'utf8')).trim()
+      if (text) parts.push(`<file path="~/${name}">\n${text.slice(0, 20_000)}\n</file>`)
+    } catch {
+      // not present
+    }
+  }
+  return parts.join('\n\n')
+}
+
+function skillsSection(skills: Skill[] | undefined): string[] {
+  const list = skills?.filter((s) => s.kind === 'skill') ?? []
+  if (!list.length) return []
+  return [
+    '',
+    '# Skills',
+    'Skills hold instructions for specific kinds of task. When a task matches one, load it with the skill tool before starting, then follow it.',
+    ...list.map((s) => `- ${s.name}: ${s.description.replace(/\s+/g, ' ').slice(0, 300)}`),
+  ]
+}
+
+function userInstructionsSection(text: string | undefined): string[] {
+  return text?.trim() ? ['', "# The user's instructions (apply to all projects)", text.trim()] : []
 }
 
 const BROWSER_SECTION = [
@@ -46,6 +79,29 @@ const COMPUTER_SECTION = [
   '- Before anything irreversible or outward-facing (sending, purchasing, deleting), stop and ask the user.',
 ]
 
+/** A read-only sub-agent started by the task tool. */
+export function buildSubagentPrompt(opts: {
+  cwd: string
+  platform: NodeJS.Platform
+  now?: Date
+}): string {
+  const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
+  return [
+    'You are a sub-agent of aitech. Another agent gave you the task below; your final message is the only thing it will see.',
+    '',
+    '# Environment',
+    `- Operating system: ${os}`,
+    `- Working directory: ${opts.cwd}`,
+    `- Current date: ${(opts.now ?? new Date()).toISOString().slice(0, 10)}`,
+    '',
+    '# How to work',
+    '- You can read files, search and browse the web, but cannot change anything.',
+    '- Be thorough but efficient: search broadly first, then read what matters.',
+    '- Finish with a concise, complete report: answer the task directly, cite file paths (with line numbers) and URLs, and note anything you could not determine.',
+    '- Reply in the language of the task.',
+  ].join('\n')
+}
+
 export function buildSystemPrompt(opts: {
   cwd: string
   platform: NodeJS.Platform
@@ -61,6 +117,10 @@ export function buildSystemPrompt(opts: {
   computer?: boolean
   /** bash commands run in the OS sandbox. */
   sandbox?: boolean
+  /** Skills the model can load with the skill tool. */
+  skills?: Skill[]
+  /** From the user's home folder (loadUserInstructions). */
+  userInstructions?: string
   now?: Date
 }): string {
   const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
@@ -80,7 +140,9 @@ export function buildSystemPrompt(opts: {
     '- Match the existing code style. Keep changes focused on what was asked.',
     '- After changes, run the relevant build, tests or linters with bash when the project has them, and fix what you broke.',
     '- For multi-step tasks, keep a short todo list with todo_write.',
+    '- "@path" in a user message points at a file or folder in the project (relative to the root); read it when relevant.',
     "- If the user denies a tool call, don't retry the same action; adjust or ask.",
+    "- When a decision is genuinely the user's (ambiguous requirements, real trade-offs), ask with ask_user instead of guessing; otherwise pick a sensible default and say so.",
     '- Never reveal or print secrets such as API keys found in files or the environment.',
     '- Be concise. Reply in the language the user writes in. When done, summarise what changed and how it was verified.',
   ]
@@ -103,6 +165,7 @@ export function buildSystemPrompt(opts: {
       'Investigate, then present a clear, numbered implementation plan for the user to approve.',
     )
   }
+  lines.push(...skillsSection(opts.skills), ...userInstructionsSection(opts.userInstructions))
   if (opts.fileInstructions)
     lines.push('', '# Project instructions (from files in the repository)', opts.fileInstructions)
   if (opts.projectInstructions?.trim())
@@ -121,6 +184,8 @@ export function buildChatSystemPrompt(opts: {
   sandbox?: boolean
   browser?: boolean | 'chrome'
   computer?: boolean
+  skills?: Skill[]
+  userInstructions?: string
   now?: Date
 }): string {
   const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
@@ -138,6 +203,8 @@ export function buildChatSystemPrompt(opts: {
     '- The workspace folder belongs to this conversation: save files you create there and tell the user their full path.',
     "- Files outside the workspace are the user's own: read them when asked, and change them only when the user asks.",
     '- Use web_search and web_fetch for current or factual information you are unsure of.',
+    '- "@path" in a user message points at a file or folder in the workspace; read it when relevant.',
+    '- For visual answers (a page, chart, diagram, small app), reply with a single complete ```html, ```svg or ```mermaid block (or write an .html file); the user can preview it in a side panel. Pages may load libraries from https CDNs but cannot make network requests.',
     '- For multi-step tasks, keep a short todo list with todo_write.',
     "- If the user denies a tool call, don't retry the same action; adjust or ask.",
     '- Never reveal or print secrets such as API keys found in files or the environment.',
@@ -154,6 +221,7 @@ export function buildChatSystemPrompt(opts: {
   if (opts.browser)
     lines.push('', ...(opts.browser === 'chrome' ? CHROME_SECTION : BROWSER_SECTION))
   if (opts.computer) lines.push('', ...COMPUTER_SECTION)
+  lines.push(...skillsSection(opts.skills), ...userInstructionsSection(opts.userInstructions))
   if (opts.userSystemPrompt?.trim())
     lines.push('', '# Additional instructions', opts.userSystemPrompt.trim())
   return lines.join('\n')

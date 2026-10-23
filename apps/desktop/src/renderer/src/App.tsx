@@ -1,8 +1,11 @@
 import clsx from 'clsx'
 import { useCallback, useEffect } from 'react'
+import { ArtifactPanel } from './components/ArtifactPanel'
+import { ChangesPanel } from './components/ChangesPanel'
 import { PairRequestDialog, RemoteBanner } from './components/Remote'
 import { Sidebar } from './components/Sidebar'
 import { invoke, api } from './lib/api'
+import { useArtifact } from './lib/artifact'
 import { attempt, useApp } from './store/app'
 import { useChat } from './store/chat'
 import { ChatView } from './views/ChatView'
@@ -30,6 +33,13 @@ export function App() {
       useApp.setState((s) => ({ pairRequests: [...s.pairRequests, req] })),
     )
     const offChat = api.on('chat', (e) => useChat.getState().apply(e))
+    const offOpen = api.on('open-conversation', ({ conversationId }) =>
+      useApp.getState().open(conversationId),
+    )
+    const offCommand = api.on('app-command', ({ command }) => {
+      if (command === 'settings') useApp.getState().setView('settings')
+      else window.dispatchEvent(new Event('aitech:new-chat'))
+    })
     const offInvalidate = api.on('invalidate', ({ scope }) => {
       const app = useApp.getState()
       if (scope === 'providers' || scope === 'all') void app.loadProviders()
@@ -39,6 +49,8 @@ export function App() {
     })
     return () => {
       offChat()
+      offOpen()
+      offCommand()
       offInvalidate()
       offRemote()
       offPair()
@@ -75,9 +87,24 @@ export function App() {
         useApp.getState().setView('settings')
       }
     }
+    // New chat from the tray or the global shortcut.
+    const onNewChat = () => void newChat()
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('aitech:new-chat', onNewChat)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('aitech:new-chat', onNewChat)
+    }
   }, [newChat])
+
+  // Artifacts belong to the conversation they came from; the changes panel follows the active one.
+  const activeId = useApp((s) => s.activeId)
+  const changesFor = useArtifact((s) => s.changesFor)
+  useEffect(() => {
+    const panel = useArtifact.getState()
+    if (panel.changesFor && activeId) panel.openChanges(activeId)
+    else panel.close()
+  }, [activeId])
 
   return (
     <div className="flex h-full">
@@ -92,6 +119,8 @@ export function App() {
         {view === 'images' && <ImagesView />}
         {view === 'settings' && <SettingsView />}
       </main>
+      {view === 'chat' && <ArtifactPanel />}
+      {view === 'chat' && changesFor && <ChangesPanel conversationId={changesFor} />}
       <PairRequestDialog />
       {toast && (
         <div

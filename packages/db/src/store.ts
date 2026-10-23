@@ -57,6 +57,27 @@ export interface TrustedDeviceRow {
   lastSeen: number | null
 }
 
+export interface ScheduleRow {
+  id: string
+  name: string
+  /** Runs as a task in this project; null: a plain chat. */
+  projectId: string | null
+  prompt: string
+  /** Five-field cron expression, local time. */
+  cron: string
+  /** null: the project's / app's default model. */
+  modelId: string | null
+  enabled: boolean
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastConversationId: string | null
+  lastError: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export type ScheduleInput = Pick<ScheduleRow, 'name' | 'projectId' | 'prompt' | 'cron' | 'modelId'>
+
 export interface ConversationParams {
   temperature?: number
   maxOutputTokens?: number
@@ -72,6 +93,9 @@ export interface ConversationRow {
   thinking: ThinkingLevel
   activeLeafId: string | null
   pinned: boolean
+  /** The agent works in this git worktree instead of the project root. */
+  worktreePath: string | null
+  worktreeBranch: string | null
   createdAt: number
   updatedAt: number
 }
@@ -448,7 +472,102 @@ export class Store {
         id,
       )
       for (const c of this.listConversations({ projectId: id })) this.deleteConversation(c.id)
+      for (const s of this.listSchedules()) if (s.projectId === id) this.deleteSchedule(s.id)
     })
+  }
+
+  // ── schedules ──────────────────────────────────────────────
+
+  private toSchedule = (r: Row): ScheduleRow => ({
+    id: r.id as string,
+    name: r.name as string,
+    projectId: (r.project_id as string | null) ?? null,
+    prompt: r.prompt as string,
+    cron: r.cron as string,
+    modelId: (r.model_id as string | null) ?? null,
+    enabled: r.enabled === 1,
+    nextRunAt: (r.next_run_at as number | null) ?? null,
+    lastRunAt: (r.last_run_at as number | null) ?? null,
+    lastConversationId: (r.last_conversation_id as string | null) ?? null,
+    lastError: (r.last_error as string | null) ?? null,
+    createdAt: r.created_at as number,
+    updatedAt: r.updated_at as number,
+  })
+
+  listSchedules(): ScheduleRow[] {
+    return this.all('SELECT * FROM schedules WHERE deleted_at IS NULL ORDER BY created_at').map(
+      this.toSchedule,
+    )
+  }
+
+  getSchedule(id: string): ScheduleRow | undefined {
+    const r = this.get('SELECT * FROM schedules WHERE id = ? AND deleted_at IS NULL', id)
+    return r && this.toSchedule(r)
+  }
+
+  createSchedule(input: ScheduleInput & { nextRunAt: number | null }): ScheduleRow {
+    const id = newId()
+    const t = this.now()
+    this.run(
+      `INSERT INTO schedules (id, name, project_id, prompt, cron, model_id, next_run_at,
+         created_at, updated_at, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      input.name,
+      input.projectId,
+      input.prompt,
+      input.cron,
+      input.modelId,
+      input.nextRunAt,
+      t,
+      t,
+      this.deviceId,
+    )
+    return this.getSchedule(id)!
+  }
+
+  updateSchedule(
+    id: string,
+    patch: Partial<
+      ScheduleInput &
+        Pick<
+          ScheduleRow,
+          'enabled' | 'nextRunAt' | 'lastRunAt' | 'lastConversationId' | 'lastError'
+        >
+    >,
+  ): ScheduleRow {
+    const cur = this.getSchedule(id)
+    if (!cur) throw new Error(`schedule ${id} not found`)
+    const n = { ...cur, ...patch }
+    this.run(
+      `UPDATE schedules SET name = ?, project_id = ?, prompt = ?, cron = ?, model_id = ?, enabled = ?,
+         next_run_at = ?, last_run_at = ?, last_conversation_id = ?, last_error = ?,
+         updated_at = ?, device_id = ? WHERE id = ?`,
+      n.name,
+      n.projectId,
+      n.prompt,
+      n.cron,
+      n.modelId,
+      n.enabled ? 1 : 0,
+      n.nextRunAt,
+      n.lastRunAt,
+      n.lastConversationId,
+      n.lastError,
+      this.now(),
+      this.deviceId,
+      id,
+    )
+    return this.getSchedule(id)!
+  }
+
+  deleteSchedule(id: string): void {
+    const t = this.now()
+    this.run(
+      'UPDATE schedules SET deleted_at = ?, updated_at = ?, device_id = ? WHERE id = ?',
+      t,
+      t,
+      this.deviceId,
+      id,
+    )
   }
 
   // ── conversations ──────────────────────────────────────────
@@ -463,6 +582,8 @@ export class Store {
     thinking: (r.thinking as ThinkingLevel) ?? 'off',
     activeLeafId: (r.active_leaf_id as string | null) ?? null,
     pinned: r.pinned === 1,
+    worktreePath: (r.worktree_path as string | null) ?? null,
+    worktreeBranch: (r.worktree_branch as string | null) ?? null,
     createdAt: r.created_at as number,
     updatedAt: r.updated_at as number,
   })
@@ -541,6 +662,8 @@ export class Store {
         | 'activeLeafId'
         | 'pinned'
         | 'projectId'
+        | 'worktreePath'
+        | 'worktreeBranch'
       >
     >,
   ): ConversationRow {
@@ -549,7 +672,8 @@ export class Store {
     const next = { ...cur, ...patch }
     this.run(
       `UPDATE conversations SET title = ?, model_id = ?, system_prompt = ?, params_json = ?, thinking = ?,
-         active_leaf_id = ?, pinned = ?, project_id = ?, updated_at = ?, device_id = ?
+         active_leaf_id = ?, pinned = ?, project_id = ?, worktree_path = ?, worktree_branch = ?,
+         updated_at = ?, device_id = ?
        WHERE id = ?`,
       next.title,
       next.modelId,
@@ -559,6 +683,8 @@ export class Store {
       next.activeLeafId,
       next.pinned ? 1 : 0,
       next.projectId,
+      next.worktreePath,
+      next.worktreeBranch,
       this.now(),
       this.deviceId,
       id,
