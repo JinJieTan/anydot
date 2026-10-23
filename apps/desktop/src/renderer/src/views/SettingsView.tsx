@@ -584,9 +584,9 @@ function ShortcutInput({ value, onChange }: { value: string; onChange: (v: strin
       <Button
         size="sm"
         variant="ghost"
-        onClick={() => void invoke('settings.defaultShortcut').then(onChange)}
+        onClick={() => void invoke('settings.suggestedShortcut').then(onChange)}
       >
-        恢复默认
+        使用推荐
       </Button>
     </div>
   )
@@ -612,7 +612,7 @@ function GeneralTab() {
       </Field>
       <Field
         label="全局快捷键"
-        hint="在任何应用中按下即可打开 aitech 并新建对话；aitech 在前台时再按一次会隐藏"
+        hint="默认关闭。开启后在任何应用中按下即可打开 aitech 并新建对话，aitech 在前台时再按一次会隐藏"
       >
         <ShortcutInput
           value={settings.globalShortcut}
@@ -755,6 +755,7 @@ function AboutTab() {
     ['Node', info.versions.node],
     ['数据库', `schema v${info.db.schemaVersion}`],
     ['Key 存储', info.keyStorage === 'os' ? '系统钥匙串加密' : '未加密（系统不支持钥匙串）'],
+    ['日志', info.logs],
   ]
   return (
     <div className="max-w-xl p-6">
@@ -766,10 +767,15 @@ function AboutTab() {
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-fg-soft">{k}</dt>
-            <dd>{v}</dd>
+            <dd className="min-w-0 break-all">{v}</dd>
           </div>
         ))}
       </dl>
+      <div className="mt-5">
+        <Button size="sm" onClick={() => void invoke('app.revealLogs')}>
+          打开日志文件夹
+        </Button>
+      </div>
     </div>
   )
 }

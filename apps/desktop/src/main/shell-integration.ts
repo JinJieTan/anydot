@@ -1,8 +1,11 @@
 import { globalShortcut, Menu, nativeImage, Tray, type NativeImage } from 'electron'
 import type { Settings } from '../shared/ipc'
 
-/** The global "quick entry" shortcut's default, avoiding Alt+Space (the window menu) on Windows. */
-export const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'Control+Alt+Space'
+/**
+ * The shortcut the settings page suggests (it's off until the user turns it on:
+ * Option+Space is often taken by launchers). Avoids Alt+Space, the window menu, on Windows.
+ */
+export const SUGGESTED_SHORTCUT = process.platform === 'darwin' ? 'Alt+Space' : 'Control+Alt+Space'
 
 /**
  * A four-point sparkle drawn in code (no image assets): an astroid,

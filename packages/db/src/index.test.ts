@@ -1,6 +1,9 @@
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { migrate, migrations, openDatabase, schemaVersion } from './index'
+import { backupBeforeMigrate, migrate, migrations, openDatabase, schemaVersion } from './index'
 
 const tables = (db: DatabaseSync) =>
   (
@@ -37,5 +40,60 @@ describe('migrate', () => {
        VALUES ('m1', 'missing', 'user', '[]', 0, 0, 'd')`,
     )
     expect(() => insert.run()).toThrow(/FOREIGN KEY/)
+  })
+})
+
+describe('backups before migration', () => {
+  const oldDatabase = (dir: string) => {
+    const path = join(dir, 'aitech.db')
+    const raw = new DatabaseSync(path)
+    for (const m of migrations.slice(0, -1)) raw.exec(m)
+    raw.exec(`PRAGMA user_version = ${migrations.length - 1}`)
+    raw.exec("INSERT INTO settings (key, value_json, updated_at) VALUES ('k', '1', 1)")
+    raw.close()
+    return path
+  }
+
+  it('copies an outdated database before migrating it, keeping the newest three', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aitech-db-'))
+    try {
+      const path = oldDatabase(dir)
+      const backups: string[] = []
+      const db = openDatabase(path, { onBackup: (f) => backups.push(f) })
+      expect(schemaVersion(db)).toBe(migrations.length)
+      db.close()
+      expect(backups).toHaveLength(1)
+      const copy = new DatabaseSync(backups[0]!)
+      expect(schemaVersion(copy)).toBe(migrations.length - 1)
+      expect(copy.prepare('SELECT value_json FROM settings WHERE key = ?').get('k')).toEqual({
+        value_json: '1',
+      })
+      copy.close()
+
+      // Already current: no new backup.
+      openDatabase(path, { onBackup: (f) => backups.push(f) }).close()
+      expect(backups).toHaveLength(1)
+
+      // Older backups are pruned.
+      const raw = new DatabaseSync(join(dir, 'x.db'))
+      raw.exec(migrations[0]!)
+      raw.exec('PRAGMA user_version = 1')
+      for (let i = 0; i < 5; i++) backupBeforeMigrate(raw, join(dir, 'x.db'), new Date(1e12 + i))
+      raw.close()
+      expect(readdirSync(join(dir, 'backups')).filter((f) => f.startsWith('x-')).length).toBe(3)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('makes no backup of a new or in-memory database', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aitech-db-'))
+    try {
+      const backups: string[] = []
+      openDatabase(join(dir, 'new.db'), { onBackup: (f) => backups.push(f) }).close()
+      expect(backups).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -34,12 +34,17 @@ export class AgentHost {
   onMcpStatus: ((servers: import('../shared/ipc').McpServerStatus[]) => void) | null = null
   /** Serves the agent's host calls (e.g. the built-in browser). */
   onHostCall: ((method: string, params: unknown) => Promise<unknown>) | null = null
+  /** The agent process's stdout / stderr (console output, crash traces). */
+  onOutput: ((stream: 'stdout' | 'stderr', text: string) => void) | null = null
 
   start(): void {
     this.stopping = false
     const child = utilityProcess.fork(join(__dirname, 'agent.js'), [], {
       serviceName: 'aitech-agent',
+      stdio: 'pipe',
     })
+    child.stdout?.on('data', (d: Buffer) => this.onOutput?.('stdout', d.toString()))
+    child.stderr?.on('data', (d: Buffer) => this.onOutput?.('stderr', d.toString()))
     child.on('message', (res: AgentResponse) => this.onMessage(res))
     child.on('exit', (code) => {
       this.child = null

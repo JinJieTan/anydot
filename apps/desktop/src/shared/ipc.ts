@@ -33,6 +33,8 @@ export interface AppInfo {
   versions: { electron: string; chrome: string; node: string }
   db: { path: string; schemaVersion: number }
   keyStorage: 'os' | 'plain'
+  /** Folder with the app's log files. */
+  logs: string
 }
 
 export interface ProviderDTO {
@@ -222,11 +224,15 @@ export interface ImportResult {
 
 export interface Rpc {
   'app.info': () => AppInfo
+  /** Record a renderer error in the log file. */
+  'app.logError': (input: { message: string; stack?: string; source: string }) => void
+  /** Open the log folder in the file manager. */
+  'app.revealLogs': () => void
 
   'settings.get': () => Settings
   'settings.set': (patch: Partial<Settings>) => Settings
-  /** The global shortcut's platform default, for the settings page. */
-  'settings.defaultShortcut': () => string
+  /** A good global shortcut for this platform, offered on the settings page (the shortcut is off by default). */
+  'settings.suggestedShortcut': () => string
 
   'providers.list': () => ProviderDTO[]
   'providers.create': (input: ProviderInput) => ProviderDTO
@@ -419,9 +425,11 @@ export type RpcMethod = keyof Rpc
  */
 const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'app.info': true,
+  'app.logError': true,
+  'app.revealLogs': true,
   'settings.get': true,
   'settings.set': true,
-  'settings.defaultShortcut': true,
+  'settings.suggestedShortcut': true,
   'providers.list': true,
   'providers.create': true,
   'providers.update': true,

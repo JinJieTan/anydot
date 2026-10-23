@@ -19,6 +19,7 @@ import { WebSearch } from './search'
 import { ChatService } from './chat-service'
 import { emit } from './events'
 import { ImageService } from './image-service'
+import { Logger } from './logger'
 import { loadSettings, registerIpc } from './ipc'
 import { McpService } from './mcp-service'
 import { Notifier } from './notifier'
@@ -32,6 +33,22 @@ const BLOB_SCHEME = 'aitech-blob'
 // Separate data dir for development and automated tests.
 if (process.env['AITECH_USER_DATA']) app.setPath('userData', process.env['AITECH_USER_DATA'])
 
+// Logs live next to the data, so a support request needs just one folder.
+app.setAppLogsPath(join(app.getPath('userData'), 'logs'))
+const logger = new Logger(app.getPath('logs'))
+logger.captureConsole()
+console.info(`aitech ${app.getVersion()} starting (${process.platform} ${process.arch})`)
+
+// An error in one handler shouldn't take the whole app (and the user's running tasks) down.
+process.on('uncaughtException', (err) => console.error('[uncaught exception]', err))
+process.on('unhandledRejection', (reason) => console.error('[unhandled rejection]', reason))
+app.on('render-process-gone', (_event, contents, details) =>
+  console.error('[renderer gone]', details.reason, details.exitCode, contents.getURL()),
+)
+app.on('child-process-gone', (_event, details) =>
+  console.error('[child process gone]', details.type, details.name ?? '', details.reason),
+)
+
 protocol.registerSchemesAsPrivileged([
   { scheme: BLOB_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
   { scheme: ARTIFACT_SCHEME, privileges: { standard: true, secure: true } },
@@ -40,6 +57,12 @@ protocol.registerSchemesAsPrivileged([
 const artifacts = new ArtifactServer()
 
 const agent = new AgentHost()
+agent.onOutput = (stream, text) => {
+  const out = text.trimEnd()
+  if (!out) return
+  ;(stream === 'stderr' ? process.stderr : process.stdout).write(`${text}`)
+  logger.write(stream === 'stderr' ? 'error' : 'info', 'agent', [out])
+}
 const browser = new AgentBrowser()
 const webSearch = new WebSearch()
 const chromeExt = new ChromeBridge({
@@ -147,7 +170,9 @@ function createWindow(): void {
 
 function openStore(dataDir: string): { store: Store; dbPath: string } {
   const dbPath = join(dataDir, 'aitech.db')
-  const db = openDatabase(dbPath)
+  const db = openDatabase(dbPath, {
+    onBackup: (file) => console.info(`[db] backed up before upgrading: ${file}`),
+  })
   // Stable per-install id, stamped on every row for future sync.
   const bootstrap = new Store(db, 'bootstrap')
   let deviceId = bootstrap.getSetting<string | null>('deviceId', null)
@@ -268,6 +293,7 @@ if (!app.requestSingleInstanceLock()) {
       artifacts,
       scheduler,
       applyShell: (settings) => shellIntegration.apply(settings),
+      logger,
       dbPath: opened.dbPath,
     })
     void refreshInstalledExtension().catch(() => {})
@@ -310,7 +336,10 @@ if (!app.requestSingleInstanceLock()) {
         chromeExt.stop()
         webSearch.close()
         store?.db.close()
-        app.quit()
+        // Our cleanup is done: exit outright. A second app.quit() can be ignored while
+        // Electron is still unwinding the quit we cancelled above, leaving the app
+        // running with its database closed.
+        app.exit(0)
       })
   })
 }

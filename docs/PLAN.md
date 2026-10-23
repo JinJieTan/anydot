@@ -209,6 +209,8 @@ trusted_devices(device_id, name, pubkey, paired_at, last_seen)   -- M3
 - [x] 改动面板 + worktree：项目任务可在独立 git worktree（新分支）中运行；侧栏显示未提交改动和 diff
 - [x] Hooks：兼容 Claude Code 的 PreToolUse / PostToolUse / Stop；项目内的 Hooks 默认不运行
 - [x] 全局快捷键（新建对话）与菜单栏 / 托盘图标；Windows 开启托盘时关窗后继续后台运行
+- [x] 稳定性：界面错误边界（单个视图出错不白屏）、主进程全局异常处理、日志文件（数据目录下 logs/，自动脱敏 Key）、数据库升级前自动备份（data/backups/，保留最近 3 份）
+- [x] 应用图标（scripts/make-icon.mjs 生成 build/icon.png）；全局快捷键默认关闭
 - [ ] 内置终端、语音输入
 - [x] Computer use 多显示器：设置中选默认显示器，Agent 可用 computer_display 切换
 - [x] Windows 命令沙箱（实验性，默认关闭）：写入受限令牌 + 沙箱 SID 的 ACL，只限制写入

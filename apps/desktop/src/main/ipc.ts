@@ -27,6 +27,7 @@ import type { ChatService } from './chat-service'
 import { exportData, importData } from './data-transfer'
 import type { AgentHost } from './agent-host'
 import type { ArtifactServer } from './artifacts'
+import type { Logger } from './logger'
 import type { Scheduler } from './scheduler'
 import type { AgentBrowser } from './browser'
 import type { ChromeBridge } from './chrome-bridge'
@@ -34,7 +35,7 @@ import { exportExtensionZip, prepareInstall } from './chrome-extension'
 import { computerPermissions, requestComputerPermission } from './computer-permissions'
 import { openPreview } from './preview'
 import { emit } from './events'
-import { DEFAULT_SHORTCUT } from './shell-integration'
+import { SUGGESTED_SHORTCUT } from './shell-integration'
 import { addWorktree, changes, currentBranch, fileDiff, isRepo, removeWorktree } from './git'
 import type { ImageService } from './image-service'
 import type { McpService } from './mcp-service'
@@ -55,6 +56,7 @@ interface Deps {
   scheduler: Scheduler
   /** Applies tray / shortcut settings; returns an error when the shortcut can't be used. */
   applyShell: (s: Settings) => string | null
+  logger: Logger
   dbPath: string
 }
 
@@ -72,11 +74,7 @@ const MIME_EXT: Record<string, string> = {
 }
 
 export function loadSettings(store: Store): Settings {
-  return {
-    ...DEFAULT_SETTINGS,
-    globalShortcut: DEFAULT_SHORTCUT,
-    ...store.getSetting<Partial<Settings>>(SETTINGS_KEY, {}),
-  }
+  return { ...DEFAULT_SETTINGS, ...store.getSetting<Partial<Settings>>(SETTINGS_KEY, {}) }
 }
 
 function toDTO(p: ProviderRow): ProviderDTO {
@@ -141,6 +139,7 @@ export function registerIpc({
   artifacts,
   scheduler,
   applyShell,
+  logger,
   dbPath,
 }: Deps): void {
   const getSettings = () => loadSettings(store)
@@ -156,10 +155,16 @@ export function registerIpc({
       },
       db: { path: dbPath, schemaVersion: schemaVersion(store.db) },
       keyStorage: keyStorageKind(),
+      logs: logger.dir,
     }),
+    'app.logError': ({ message, stack, source }) =>
+      logger.write('error', `renderer:${source}`, [`${message}\n${stack ?? ''}`.trimEnd()]),
+    'app.revealLogs': async () => {
+      await shell.openPath(logger.dir)
+    },
 
     'settings.get': getSettings,
-    'settings.defaultShortcut': () => DEFAULT_SHORTCUT,
+    'settings.suggestedShortcut': () => SUGGESTED_SHORTCUT,
     'settings.set': async (patch) => {
       const prev = getSettings()
       const next = { ...prev, ...patch }

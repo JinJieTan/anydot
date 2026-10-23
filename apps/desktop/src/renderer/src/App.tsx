@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useCallback, useEffect } from 'react'
 import { ArtifactPanel } from './components/ArtifactPanel'
 import { ChangesPanel } from './components/ChangesPanel'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { PairRequestDialog, RemoteBanner } from './components/Remote'
 import { Sidebar } from './components/Sidebar'
 import { invoke, api } from './lib/api'
@@ -115,12 +116,16 @@ export function App() {
       />
       <main className="relative flex min-w-0 flex-1 flex-col bg-surface">
         <RemoteBanner />
-        {view === 'chat' && <ChatView />}
-        {view === 'images' && <ImagesView />}
-        {view === 'settings' && <SettingsView />}
+        <ErrorBoundary resetKey={`${view}:${activeId ?? ''}`}>
+          {view === 'chat' && <ChatView />}
+          {view === 'images' && <ImagesView />}
+          {view === 'settings' && <SettingsView />}
+        </ErrorBoundary>
       </main>
-      {view === 'chat' && <ArtifactPanel />}
-      {view === 'chat' && changesFor && <ChangesPanel conversationId={changesFor} />}
+      <ErrorBoundary resetKey={`panel:${activeId ?? ''}:${changesFor ?? ''}`}>
+        {view === 'chat' && <ArtifactPanel />}
+        {view === 'chat' && changesFor && <ChangesPanel conversationId={changesFor} />}
+      </ErrorBoundary>
       <PairRequestDialog />
       {toast && (
         <div
