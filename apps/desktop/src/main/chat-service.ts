@@ -27,16 +27,12 @@ import { decryptKey } from './secrets'
 
 const TITLE_MAX = 40
 
-/** Where a request came from; remote (phone) requests get stricter defaults. */
+/** Where a request came from: this desktop or a paired phone. */
 export type Origin = 'local' | 'remote'
 
-/** The mode a run actually uses. */
-function runMode(project: ProjectRow | undefined, origin: Origin): PermissionMode {
-  if (!project) return 'ask'
-  // Tasks started from a phone never run fully unattended: commands still need a tap.
-  return origin === 'remote' && project.permissionMode === 'auto'
-    ? 'auto-edit'
-    : project.permissionMode
+/** The mode a run actually uses: the project's, the same from a phone as here. */
+function runMode(project: ProjectRow | undefined): PermissionMode {
+  return project?.permissionMode ?? 'ask'
 }
 
 interface ActiveRun {
@@ -175,7 +171,7 @@ export class ChatService {
   projectModeChanged(projectId: string): void {
     const project = this.store.getProject(projectId)
     for (const run of this.runs.values())
-      if (run.projectId === projectId) run.handle?.setMode(runMode(project, run.origin))
+      if (run.projectId === projectId) run.handle?.setMode(runMode(project))
   }
 
   switchBranch(conversationId: string, messageId: string): ConversationRow {
@@ -461,7 +457,7 @@ export class ChatService {
             conversationId,
             cwd,
             workspace: !project,
-            mode: runMode(project, origin),
+            mode: runMode(project),
             projectName: project?.name ?? '',
             projectInstructions: project?.instructions ?? null,
             userSystemPrompt: conv.systemPrompt,

@@ -259,7 +259,6 @@ export function AutomationTab() {
         <p className="mt-2 text-sm leading-relaxed text-fg-soft">
           除“全自动”模式外，Agent
           第一次截屏或操作前都会请求确认；选择“总是允许”后，本次会话内不再询问。
-          从手机派发的任务始终需要确认。
         </p>
         {settings.computerUse && displays.length > 1 && (
           <div className="mt-4">

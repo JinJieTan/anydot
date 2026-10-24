@@ -35,8 +35,8 @@ const ACTIVE_WINDOW = 3 * 60_000
 const DELTA_FLUSH_MS = 120
 const MAX_BLOB_BYTES = 8 * 1024 * 1024
 const THINKING_LEVELS = ['off', 'low', 'medium', 'high'] as const
-/** Modes a phone may pick; 全自动 can only be turned on at the desktop. */
-const REMOTE_MODES: PermissionMode[] = ['ask', 'auto-edit', 'plan']
+/** Modes a phone may pick. */
+const REMOTE_MODES: PermissionMode[] = ['ask', 'auto-edit', 'auto', 'plan']
 
 interface RemoteSettings {
   enabled: boolean
@@ -510,7 +510,7 @@ export class RemoteService {
       case 'project.setMode': {
         const projectId = str('projectId')
         const mode = REMOTE_MODES.find((m) => m === p.mode)
-        if (!mode) throw new Error('手机上不能设置这个权限模式，请在电脑上修改')
+        if (!mode) throw new Error('无效的权限模式')
         if (!this.store.getProject(projectId)) throw new Error('项目不存在')
         const project = this.store.updateProject(projectId, { permissionMode: mode })
         this.chat.projectModeChanged(projectId)

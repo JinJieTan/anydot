@@ -75,7 +75,7 @@ describe('RemoteService remote API', () => {
     )
   })
 
-  it('lets the phone set a project permission mode, except 全自动', async () => {
+  it('lets the phone set any project permission mode', async () => {
     const { store, rpc, modeChanges } = setup()
     const project = store.createProject({ name: 'p', rootPath: '/tmp/p' })
 
@@ -83,10 +83,11 @@ describe('RemoteService remote API', () => {
       permissionMode: 'plan',
     })
     expect(modeChanges).toEqual([project.id])
-    await expect(rpc('project.setMode', { projectId: project.id, mode: 'auto' })).rejects.toThrow(
-      '请在电脑上修改',
+    await rpc('project.setMode', { projectId: project.id, mode: 'auto' })
+    expect(store.getProject(project.id)?.permissionMode).toBe('auto')
+    await expect(rpc('project.setMode', { projectId: project.id, mode: 'yolo' })).rejects.toThrow(
+      '无效的权限模式',
     )
-    expect(store.getProject(project.id)?.permissionMode).toBe('plan')
-    expect(await rpc('sync')).toMatchObject({ remoteModes: ['ask', 'auto-edit', 'plan'] })
+    expect(await rpc('sync')).toMatchObject({ remoteModes: ['ask', 'auto-edit', 'auto', 'plan'] })
   })
 })
