@@ -34,12 +34,24 @@ export async function currentBranch(cwd: string): Promise<string | null> {
 
 /** A new worktree at `path` on a new branch from the current HEAD of `root`. */
 export async function addWorktree(root: string, path: string, branch: string): Promise<void> {
+  // Forget worktrees whose folders are gone, so their branches count as free.
+  await git(root, ['worktree', 'prune'])
+  // A leftover branch of the same name (an earlier toggle) goes if it has nothing of its own.
+  await git(root, ['branch', '-d', branch]).catch(() => {})
   await git(root, ['worktree', 'add', '-b', branch, path, 'HEAD'])
 }
 
-/** Remove a worktree; refuses (throws) if it has uncommitted changes. The branch is kept. */
-export async function removeWorktree(root: string, path: string): Promise<void> {
+/**
+ * Remove a worktree; refuses (throws) if it has uncommitted changes. The branch is
+ * kept unless `deleteBranch`, and even then only if it has no unmerged commits.
+ */
+export async function removeWorktree(
+  root: string,
+  path: string,
+  branch?: { deleteBranch: string },
+): Promise<void> {
   await git(root, ['worktree', 'remove', path])
+  if (branch) await git(root, ['branch', '-d', branch.deleteBranch]).catch(() => {})
 }
 
 export interface FileChange {

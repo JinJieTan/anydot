@@ -50,4 +50,16 @@ describe('git', () => {
     await removeWorktree(root, wt)
     expect(sh(root, 'branch', '--list', 'aitech/test').toString()).toContain('aitech/test')
   })
+
+  it('can turn a worktree off and on again under the same branch name', async () => {
+    const wt = join(mkdtempSync(join(tmpdir(), 'aitech-wt-')), 'w')
+    await addWorktree(root, wt, 'aitech/again')
+    await removeWorktree(root, wt, { deleteBranch: 'aitech/again' })
+    expect(sh(root, 'branch', '--list', 'aitech/again').toString()).toBe('')
+    // A branch left behind by an older build is reused once it has nothing of its own.
+    sh(root, 'branch', 'aitech/again')
+    await addWorktree(root, wt, 'aitech/again')
+    expect(await currentBranch(wt)).toBe('aitech/again')
+    await removeWorktree(root, wt)
+  })
 })
