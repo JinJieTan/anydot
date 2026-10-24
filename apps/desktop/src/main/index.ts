@@ -134,7 +134,7 @@ function createWindow(): void {
     title: 'AnyDot',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 16 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#262624' : '#faf9f5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -201,6 +201,8 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
+    // Packaged builds get the icon from the bundle; in dev the Dock would show Electron's.
+    if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
     const dataDir = join(app.getPath('userData'), 'data')
     mkdirSync(dataDir, { recursive: true })
     const opened = openStore(dataDir)

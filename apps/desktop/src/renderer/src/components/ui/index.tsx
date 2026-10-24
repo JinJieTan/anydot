@@ -155,6 +155,23 @@ export function Field({
   )
 }
 
+/** The AnyDot mark (brand/logo-mark.svg): the D takes the text color, the dot the accent. */
+export function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="40 26 116 128" className={className} aria-hidden="true">
+      <path
+        d="M84 42 L90 42 C121 42 140 64 140 90 C140 116 121 138 90 138 L62 138 Q56 138 56 132 L56 64"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="17"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="98" cy="90" r="16" className="fill-accent" />
+    </svg>
+  )
+}
+
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={clsx('size-4 animate-spin text-fg-faint', className)} />
 }

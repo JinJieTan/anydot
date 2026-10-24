@@ -6,7 +6,6 @@ import {
   FolderOpen,
   FolderPlus,
   Image,
-  MessageSquarePlus,
   MessagesSquare,
   MoreHorizontal,
   Pencil,
@@ -23,7 +22,7 @@ import { invoke, isMac } from '../lib/api'
 import { dayGroup } from '../lib/format'
 import { attempt, succeeded, useApp } from '../store/app'
 import { useChat } from '../store/chat'
-import { Button, Field, IconButton, Input, Modal, Select, Textarea, useDismiss } from './ui'
+import { Button, Field, Input, Modal, Select, Textarea, useDismiss } from './ui'
 
 export function Sidebar({
   onNewChat,
@@ -80,13 +79,7 @@ export function Sidebar({
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-canvas">
-      <div
-        className={clsx('drag flex h-12 shrink-0 items-center justify-end px-2', isMac && 'pl-20')}
-      >
-        <IconButton label={mode === 'chat' ? '新对话 (⌘N)' : '新任务'} onClick={newInMode}>
-          <MessageSquarePlus className="size-4.5" />
-        </IconButton>
-      </div>
+      <div className="drag h-12 shrink-0" />
 
       <div className="px-3 pb-2">
         <div className="flex rounded-lg bg-muted/70 p-0.5 text-sm">
@@ -112,6 +105,24 @@ export function Sidebar({
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="px-2 pb-1.5">
+        <button
+          type="button"
+          onClick={newInMode}
+          className="group flex h-9 w-full items-center gap-2.5 rounded-lg px-1.5 text-sm font-medium text-fg transition-colors hover:bg-muted/70"
+        >
+          <span className="flex size-6 items-center justify-center rounded-full bg-accent text-white transition-transform group-hover:scale-105">
+            <Plus className="size-3.5" strokeWidth={2.5} />
+          </span>
+          <span className="flex-1 text-left">{mode === 'chat' ? '新对话' : '新任务'}</span>
+          {mode === 'chat' && (
+            <kbd className="font-sans text-[11px] text-fg-faint opacity-0 transition-opacity group-hover:opacity-100">
+              {isMac ? '⌘N' : 'Ctrl+N'}
+            </kbd>
+          )}
+        </button>
       </div>
 
       <div className="px-3 pb-2">

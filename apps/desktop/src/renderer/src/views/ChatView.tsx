@@ -1,13 +1,5 @@
 import clsx from 'clsx'
-import {
-  Folder,
-  FolderOpen,
-  GitBranch,
-  GitCompare,
-  Settings2,
-  Sparkles,
-  Terminal,
-} from 'lucide-react'
+import { Folder, FolderOpen, GitBranch, GitCompare, Settings2, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   Attachment,
@@ -20,7 +12,16 @@ import { Composer } from '../components/Composer'
 import { AssistantMessage, UserMessage } from '../components/Message'
 import { ModelPicker, ThinkingPicker } from '../components/ModelPicker'
 import type { ToolResultPart } from '../components/ToolCall'
-import { Button, Field, IconButton, Input, Modal, Textarea, useDismiss } from '../components/ui'
+import {
+  Button,
+  Field,
+  IconButton,
+  Input,
+  LogoMark,
+  Modal,
+  Textarea,
+  useDismiss,
+} from '../components/ui'
 import { invoke, isMac } from '../lib/api'
 import { useArtifact } from '../lib/artifact'
 import { activePath, siblingsOf } from '../lib/tree'
@@ -133,9 +134,13 @@ export function ChatView() {
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-24">
           <div className="w-full max-w-2xl">
             <div className="mb-8 flex flex-col items-center text-center">
-              <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent/12 text-accent">
-                {project ? <Terminal className="size-6" /> : <Sparkles className="size-6" />}
-              </div>
+              {project ? (
+                <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent/12 text-accent">
+                  <Terminal className="size-6" />
+                </div>
+              ) : (
+                <LogoMark className="mb-4 size-11 text-fg" />
+              )}
               <h1 className="text-2xl font-semibold">
                 {project ? `在「${project.name}」中做点什么？` : '有什么可以帮你？'}
               </h1>
