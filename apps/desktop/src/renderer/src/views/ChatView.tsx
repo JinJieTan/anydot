@@ -51,11 +51,10 @@ export function ChatView() {
   const changesOpen = useArtifact((s) => !!conversation && s.changesFor === conversation.id)
   const chatModels = models.filter((m) => m.capabilities.includes('chat'))
 
-  // Model shown in the picker before a conversation exists.
-  const [draftModelId, setDraftModelId] = useState<string | null>(null)
+  // Before a conversation exists the picker shows the remembered default.
   const draftThinking = settings.defaultThinking
   const effectiveModelId =
-    conversation?.modelId ?? draftModelId ?? settings.defaultModelId ?? chatModels[0]?.id ?? null
+    conversation?.modelId ?? settings.defaultModelId ?? chatModels[0]?.id ?? null
   const model = models.find((m) => m.id === effectiveModelId)
 
   const update = useCallback(
@@ -96,16 +95,19 @@ export function ChatView() {
     <>
       <ModelPicker
         value={effectiveModelId}
-        onChange={(id) => (conversation ? void update({ modelId: id }) : setDraftModelId(id))}
+        onChange={(id) => {
+          // Any pick becomes the default, so the next new conversation starts on it.
+          if (conversation) void update({ modelId: id })
+          void useApp.getState().updateSettings({ defaultModelId: id })
+        }}
       />
       {model?.capabilities.includes('reasoning') && (
         <ThinkingPicker
           value={conversation?.thinking ?? draftThinking}
-          onChange={(thinking) =>
-            conversation
-              ? void update({ thinking })
-              : void useApp.getState().updateSettings({ defaultThinking: thinking })
-          }
+          onChange={(thinking) => {
+            if (conversation) void update({ thinking })
+            void useApp.getState().updateSettings({ defaultThinking: thinking })
+          }}
         />
       )}
       {project && <ModePicker project={project} />}
