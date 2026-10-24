@@ -7,10 +7,21 @@ files:
   - out/**
   - package.json
 asar: true
+# Where electron-updater looks for new versions (written into the app as app-update.yml).
+# CI uploads the files itself, so electron-builder never publishes.
+publish:
+  provider: github
+  owner: JinJieTan
+  repo: anydot
 mac:
   category: public.app-category.developer-tools
+  # Names the zips; the dmg section names the dmgs.
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
   target:
     - target: dmg
+      arch: [arm64, x64]
+    # The updater reads latest-mac.yml, which electron-builder only writes for zip builds.
+    - target: zip
       arch: [arm64, x64]
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist

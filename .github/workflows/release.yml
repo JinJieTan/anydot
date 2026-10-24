@@ -45,6 +45,7 @@ jobs:
         run: npx electron-builder --mac -c.mac.identity=- -c.mac.hardenedRuntime=false --publish never
 
       # One installer per architecture, rather than a combined one twice the size.
+      # Each gets its own update channel so the arm64 build doesn't overwrite latest.yml.
       - name: Package (Windows, x64 and arm64)
         if: runner.os == 'Windows'
         working-directory: apps/desktop
@@ -52,13 +53,17 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
           npx electron-builder --win --x64 --publish never
-          npx electron-builder --win --arm64 --publish never
+          npx electron-builder --win --arm64 -c.publish.channel=latest-arm64 --publish never
 
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
           generate_release_notes: true
           body_path: .github/release-notes.md
+          # The .yml and .blockmap files are for the in-app updater; the zips are what macOS updates from.
           files: |
             apps/desktop/release/*/*.dmg
+            apps/desktop/release/*/*-mac-*.zip
             apps/desktop/release/*/*-setup.exe
+            apps/desktop/release/*/*.blockmap
+            apps/desktop/release/*/latest*.yml

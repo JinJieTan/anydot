@@ -37,6 +37,25 @@ export interface AppInfo {
   logs: string
 }
 
+export interface UpdateStatusDTO {
+  /**
+   * unsupported: a dev build. available: a newer version to download by hand (macOS).
+   * downloading → ready: Windows fetches it in the background, then restarts into it.
+   */
+  state:
+    'unsupported' | 'idle' | 'checking' | 'latest' | 'available' | 'downloading' | 'ready' | 'error'
+  current: string
+  version: string | null
+  /** Download percent while downloading. */
+  progress: number | null
+  error: string | null
+}
+
+export interface FeedbackInput {
+  message: string
+  contact?: string
+}
+
 export interface ProviderDTO {
   id: string
   name: string
@@ -228,6 +247,13 @@ export interface Rpc {
   'app.logError': (input: { message: string; stack?: string; source: string }) => void
   /** Open the log folder in the file manager. */
   'app.revealLogs': () => void
+
+  'updates.status': () => UpdateStatusDTO
+  'updates.check': () => UpdateStatusDTO
+  /** Restart into a downloaded update, or open the download page. */
+  'updates.install': () => void
+  /** Sent to the AnyDot relay at anydot.app, read in its admin page. */
+  'feedback.send': (input: FeedbackInput) => void
 
   'settings.get': () => Settings
   'settings.set': (patch: Partial<Settings>) => Settings
@@ -427,6 +453,10 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'app.info': true,
   'app.logError': true,
   'app.revealLogs': true,
+  'updates.status': true,
+  'updates.check': true,
+  'updates.install': true,
+  'feedback.send': true,
   'settings.get': true,
   'settings.set': true,
   'settings.suggestedShortcut': true,
@@ -522,6 +552,7 @@ export interface Events {
   'remote-pair': PairRequestDTO
   mcp: McpServerStatus[]
   'chrome-ext': ChromeExtStatus
+  update: UpdateStatusDTO
   /** Bring a conversation to the front (e.g. a notification was clicked). */
   'open-conversation': { conversationId: string }
   /** From the tray or the global shortcut. */
@@ -583,6 +614,8 @@ export type AgentRequest =
   | { type: 'ping'; id: string }
   | { type: 'run.start'; runId: string; request: AgentRunRequest }
   | { type: 'run.abort'; runId: string }
+  /** The project's permission mode changed while the run was going. */
+  | { type: 'run.mode'; runId: string; mode: PermissionMode }
   | {
       type: 'run.approve'
       runId: string
@@ -605,6 +638,8 @@ export type AgentResponse =
   | { type: 'mcp.status'; servers: McpServerStatus[] }
   | { type: 'run.event'; runId: string; event: AgentEvent }
   | { type: 'run.approval'; runId: string; request: ApprovalRequest }
+  /** A pending approval no longer needs the user (the mode changed and it now runs). */
+  | { type: 'run.approval-resolved'; runId: string; toolCallId: string }
   /** The agent asks main to do something only main can, e.g. drive the browser window. */
   | { type: 'host.call'; id: string; method: string; params: unknown }
   | {

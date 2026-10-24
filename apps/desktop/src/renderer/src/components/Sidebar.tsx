@@ -22,6 +22,8 @@ import { invoke, isMac } from '../lib/api'
 import { dayGroup } from '../lib/format'
 import { attempt, succeeded, useApp } from '../store/app'
 import { useChat } from '../store/chat'
+import { FeedbackButton } from './Feedback'
+import { UpdateBanner } from './Updates'
 import { Button, Field, Input, Modal, Select, Textarea, useDismiss } from './ui'
 
 export function Sidebar({
@@ -227,13 +229,19 @@ export function Sidebar({
       </div>
 
       <div className="border-t border-line p-2">
-        <NavItem
-          active={view === 'settings'}
-          onClick={() => setView('settings')}
-          icon={<Settings className="size-4" />}
-        >
-          设置
-        </NavItem>
+        <UpdateBanner />
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <NavItem
+              active={view === 'settings'}
+              onClick={() => setView('settings')}
+              icon={<Settings className="size-4" />}
+            >
+              设置
+            </NavItem>
+          </div>
+          <FeedbackButton />
+        </div>
       </div>
     </aside>
   )

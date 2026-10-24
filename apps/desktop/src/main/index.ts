@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, protocol, shell } from 'electron'
@@ -26,6 +26,7 @@ import { Notifier } from './notifier'
 import { RemoteService } from './remote-service'
 import { Scheduler } from './scheduler'
 import { ShellIntegration } from './shell-integration'
+import { Updater } from './updater'
 
 /** Serves local blobs to the renderer as aitech-blob://blob/<sha256>. */
 const BLOB_SCHEME = 'aitech-blob'
@@ -33,10 +34,14 @@ const BLOB_SCHEME = 'aitech-blob'
 // Separate data dir for development and automated tests.
 if (process.env['AITECH_USER_DATA']) app.setPath('userData', process.env['AITECH_USER_DATA'])
 else {
-  // The app was called aitech before AnyDot; move its data folder over once.
+  // The app was called aitech before AnyDot. Electron creates the new userData
+  // folder before this runs, so look for our data rather than the folder, and
+  // keep using the old folder when that's where the data is.
   const legacy = join(app.getPath('appData'), 'aitech')
   const current = app.getPath('userData')
-  if (legacy !== current && !existsSync(current) && existsSync(legacy)) renameSync(legacy, current)
+  if (!existsSync(join(current, 'data')) && existsSync(join(legacy, 'data'))) {
+    app.setPath('userData', legacy)
+  }
 }
 
 // Logs live next to the data, so a support request needs just one folder.
@@ -61,6 +66,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const artifacts = new ArtifactServer()
+const updater = new Updater((status) => emit('update', status))
 
 const agent = new AgentHost()
 agent.onOutput = (stream, text) => {
@@ -300,6 +306,7 @@ if (!app.requestSingleInstanceLock()) {
       agent,
       artifacts,
       scheduler,
+      updater,
       applyShell: (settings) => shellIntegration.apply(settings),
       logger,
       dbPath: opened.dbPath,
@@ -312,6 +319,7 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     void remote.restart()
     scheduler.start()
+    updater.start()
     const shellError = shellIntegration.apply(loadSettings(s))
     if (shellError) console.warn('[shortcut]', shellError)
 
@@ -333,6 +341,7 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault()
     shutDown = true
     scheduler?.stop()
+    updater.stop()
     shellIntegration.dispose()
     images?.stopAll()
     remote?.stop()

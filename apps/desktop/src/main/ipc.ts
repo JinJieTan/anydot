@@ -40,6 +40,7 @@ import { addWorktree, changes, currentBranch, fileDiff, isRepo, removeWorktree }
 import type { ImageService } from './image-service'
 import type { McpService } from './mcp-service'
 import type { RemoteService } from './remote-service'
+import type { Updater } from './updater'
 import { decryptKey, encryptKey, keyHint, keyStorageKind } from './secrets'
 
 interface Deps {
@@ -54,6 +55,7 @@ interface Deps {
   agent: AgentHost
   artifacts: ArtifactServer
   scheduler: Scheduler
+  updater: Updater
   /** Applies tray / shortcut settings; returns an error when the shortcut can't be used. */
   applyShell: (s: Settings) => string | null
   logger: Logger
@@ -65,6 +67,9 @@ const ARTIFACT_EXTS = new Set(['.html', '.htm', '.svg', '.md', '.markdown', '.mm
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
 
 const SETTINGS_KEY = 'app.settings'
+
+/** Feedback always goes to the official relay, whichever relay the user pairs through. */
+const FEEDBACK_URL = 'https://anydot.app/ctl/feedback'
 
 const MIME_EXT: Record<string, string> = {
   'image/png': 'png',
@@ -138,6 +143,7 @@ export function registerIpc({
   agent,
   artifacts,
   scheduler,
+  updater,
   applyShell,
   logger,
   dbPath,
@@ -161,6 +167,34 @@ export function registerIpc({
       logger.write('error', `renderer:${source}`, [`${message}\n${stack ?? ''}`.trimEnd()]),
     'app.revealLogs': async () => {
       await shell.openPath(logger.dir)
+    },
+
+    'updates.status': () => updater.get(),
+    'updates.check': () => updater.check(),
+    'updates.install': () => updater.install(),
+    'feedback.send': async ({ message, contact }) => {
+      const text = message.trim()
+      if (!text) throw new Error('请写下反馈内容')
+      let res: Response
+      try {
+        res = await fetch(FEEDBACK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            contact: contact?.trim() ?? '',
+            version: app.getVersion(),
+            platform: `${process.platform} ${process.arch}`,
+          }),
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        throw new Error('发送失败，请检查网络后重试')
+      }
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(body.error ?? `发送失败（${res.status}）`)
+      }
     },
 
     'settings.get': getSettings,
@@ -270,7 +304,12 @@ export function registerIpc({
       if (conv.activeLeafId) throw new Error('任务开始后不能再切换 worktree')
       if (!!conv.worktreePath === enabled) return conv
       if (!enabled) {
-        await removeWorktree(project.rootPath, conv.worktreePath!)
+        // Nothing ran there yet, so its branch goes too.
+        await removeWorktree(
+          project.rootPath,
+          conv.worktreePath!,
+          conv.worktreeBranch ? { deleteBranch: conv.worktreeBranch } : undefined,
+        )
         return store.updateConversation(id, { worktreePath: null, worktreeBranch: null })
       }
       if (!(await isRepo(project.rootPath))) throw new Error('项目文件夹不是 git 仓库')
@@ -318,6 +357,7 @@ export function registerIpc({
     },
     'projects.update': (id, patch) => {
       const p = store.updateProject(id, patch)
+      if (patch.permissionMode) chat.projectModeChanged(id)
       emit('invalidate', { scope: 'projects' })
       return p
     },

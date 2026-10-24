@@ -8,6 +8,7 @@ import { AutomationTab } from '../components/Automation'
 import { McpTab } from '../components/Mcp'
 import { RemoteTab } from '../components/Remote'
 import { SchedulesTab } from '../components/Schedules'
+import { UpdateCheck } from '../components/Updates'
 import { Badge, Button, Field, IconButton, Input, Select, Spinner, Toggle } from '../components/ui'
 import { invoke, isMac } from '../lib/api'
 import { attempt, succeeded, useApp } from '../store/app'
@@ -772,6 +773,9 @@ function AboutTab() {
         ))}
       </dl>
       <div className="mt-5">
+        <UpdateCheck />
+      </div>
+      <div className="mt-3">
         <Button size="sm" onClick={() => void invoke('app.revealLogs')}>
           打开日志文件夹
         </Button>
