@@ -55,6 +55,21 @@ jobs:
           npx electron-builder --win --x64 --publish never
           npx electron-builder --win --arm64 -c.publish.channel=latest-arm64 --publish never
 
+      # Copies without the version in the name, so anydot.app can link to
+      # releases/latest/download/AnyDot-mac-arm64.dmg and never needs bumping.
+      - name: Add version-free installer names
+        shell: bash
+        working-directory: apps/desktop/release
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p latest
+          for f in "$version"/*.dmg "$version"/*-setup.exe; do
+            [ -e "$f" ] || continue
+            name=$(basename "$f")
+            cp "$f" "latest/${name/-$version-/-}"
+          done
+          ls latest
+
       - uses: softprops/action-gh-release@v2
         with:
           draft: true

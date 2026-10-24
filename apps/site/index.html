@@ -187,7 +187,10 @@
         对话、生图，在项目里写代码、跑命令；手机扫码或输入配对码，随时远程派任务。
       </p>
       <div class="actions">
-        <a class="btn primary" id="dl" href="/download/AnyDot-0.1.0-mac-arm64.dmg"
+        <a
+          class="btn primary"
+          id="dl"
+          href="https://github.com/JinJieTan/anydot/releases/latest/download/AnyDot-mac-arm64.dmg"
           >下载 macOS 版（Apple 芯片）</a
         >
         <a class="btn secondary" href="/ctl/m/">在线控制电脑</a>
@@ -207,11 +210,21 @@
       </div>
       <p class="downloads">
         其他版本：
-        <a href="/download/AnyDot-0.1.0-mac-arm64.dmg">macOS Apple 芯片</a>
-        <a href="/download/AnyDot-0.1.0-mac-x64.dmg">macOS Intel</a>
-        <a href="/download/AnyDot-0.1.0-windows-x64-setup.exe">Windows x64</a>
-        <a href="/download/AnyDot-0.1.0-windows-arm64-setup.exe">Windows ARM</a>
-        · v0.1.0 · 首次打开的方法见
+        <a href="https://github.com/JinJieTan/anydot/releases/latest/download/AnyDot-mac-arm64.dmg"
+          >macOS Apple 芯片</a
+        >
+        <a href="https://github.com/JinJieTan/anydot/releases/latest/download/AnyDot-mac-x64.dmg"
+          >macOS Intel</a
+        >
+        <a
+          href="https://github.com/JinJieTan/anydot/releases/latest/download/AnyDot-windows-x64-setup.exe"
+          >Windows x64</a
+        >
+        <a
+          href="https://github.com/JinJieTan/anydot/releases/latest/download/AnyDot-windows-arm64-setup.exe"
+          >Windows ARM</a
+        >
+        · <span id="ver">v0.1.0</span> · 首次打开的方法见
         <a href="https://github.com/JinJieTan/anydot#安装" target="_blank" rel="noopener"
           >安装说明</a
         >
@@ -255,9 +268,19 @@
       // Windows visitors get the Windows installer as the main button.
       if (/Windows/.test(navigator.userAgent)) {
         var dl = document.getElementById('dl')
-        dl.href = '/download/AnyDot-0.1.0-windows-x64-setup.exe'
+        dl.href =
+          'https://github.com/JinJieTan/anydot/releases/latest/download/AnyDot-windows-x64-setup.exe'
         dl.textContent = '下载 Windows 版'
       }
+      // Installer links always point at the newest release; show its version too.
+      fetch('https://api.github.com/repos/JinJieTan/anydot/releases/latest')
+        .then(function (r) {
+          return r.ok ? r.json() : null
+        })
+        .then(function (r) {
+          if (r && r.tag_name) document.getElementById('ver').textContent = r.tag_name
+        })
+        .catch(function () {})
     </script>
   </body>
 </html>
