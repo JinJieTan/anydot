@@ -16,7 +16,13 @@ import {
   type RelayInfo,
   type RelayStatus,
 } from '@aitech/protocol'
-import type { ChatStreamEvent, PairRequestDTO, RemoteState, RemoteStatusDTO } from '../shared/ipc'
+import {
+  OFFICIAL_RELAY_URL,
+  type ChatStreamEvent,
+  type PairRequestDTO,
+  type RemoteState,
+  type RemoteStatusDTO,
+} from '../shared/ipc'
 import type { BlobStore } from './blobs'
 import type { ChatService } from './chat-service'
 import { decryptKey, encryptKey } from './secrets'
@@ -91,7 +97,12 @@ export class RemoteService {
   }
 
   private get settings(): RemoteSettings {
-    return { ...DEFAULTS, ...this.store.getSetting<Partial<RemoteSettings>>('remote.settings', {}) }
+    const s = {
+      ...DEFAULTS,
+      ...this.store.getSetting<Partial<RemoteSettings>>('remote.settings', {}),
+    }
+    // No relay of your own: use the official one.
+    return { ...s, relayUrl: s.relayUrl || OFFICIAL_RELAY_URL }
   }
 
   private saveSettings(patch: Partial<RemoteSettings>) {

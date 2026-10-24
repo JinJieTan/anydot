@@ -194,6 +194,9 @@ export interface RemoteDeviceDTO {
 export type RemoteState =
   'disabled' | 'connecting' | 'online' | 'offline' | 'unauthorized' | 'error'
 
+/** The relay run by AnyDot; used when no other relay is configured. */
+export const OFFICIAL_RELAY_URL = 'https://anydot.app/ctl'
+
 export interface RemoteStatusDTO {
   enabled: boolean
   relayUrl: string | null

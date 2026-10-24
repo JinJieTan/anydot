@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { Copy, Radar, ShieldCheck, Smartphone, Unplug } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useEffect, useState } from 'react'
-import type { RemoteStatusDTO, Rpc } from '../../../shared/ipc'
+import { OFFICIAL_RELAY_URL, type RemoteStatusDTO, type Rpc } from '../../../shared/ipc'
 import { invoke } from '../lib/api'
 import { formatTime } from '../lib/format'
 import { attempt, succeeded, useApp } from '../store/app'
@@ -58,14 +58,28 @@ export function RemoteTab() {
       <section className="space-y-4">
         <Field
           label="中继地址"
-          hint="你的中转站如果部署了 AnyDot 中继，点“自动检测”即可；也可以填写自己部署的中继地址。"
+          hint={
+            remote.relayUrl === OFFICIAL_RELAY_URL
+              ? '默认使用 AnyDot 官方中继，不用改。也可以点“自动检测”找你的中转站上部署的中继，或填写自己部署的中继地址。'
+              : '正在使用自定义中继。点“恢复默认”可以换回 AnyDot 官方中继。'
+          }
         >
           <div className="flex gap-2">
             <Input
               value={relayUrl}
               onChange={(e) => setRelayUrl(e.target.value)}
-              placeholder="https://api.example.com/ctl"
+              placeholder={OFFICIAL_RELAY_URL}
             />
+            {remote.relayUrl !== OFFICIAL_RELAY_URL && (
+              <Button
+                onClick={async () => {
+                  if (await configure({ relayUrl: null, enabled: true }))
+                    setRelayUrl(OFFICIAL_RELAY_URL)
+                }}
+              >
+                恢复默认
+              </Button>
+            )}
             <Button
               loading={detecting}
               onClick={async () => {
