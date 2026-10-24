@@ -180,7 +180,7 @@ export class RemoteHub {
     } catch (err) {
       this.pairWaiters.delete(p.d)
       throw (err as { code?: string }).code === 'offline'
-        ? new Error('电脑不在线，请确认电脑上的 aitech 已打开')
+        ? new Error('电脑不在线，请确认电脑上的 AnyDot 已打开')
         : err
     }
     const body = await answer

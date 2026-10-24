@@ -1,4 +1,4 @@
-# aitech relay + mobile web app, one image.
+# AnyDot relay + mobile web app, one image.
 # Build from the repository root:  docker build -f apps/relay/Dockerfile -t aitech-relay .
 FROM node:24-alpine AS build
 RUN corepack enable

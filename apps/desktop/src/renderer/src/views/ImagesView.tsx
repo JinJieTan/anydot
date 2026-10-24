@@ -378,7 +378,7 @@ function ImageActions({ sha, onUseAsRef }: { sha: string; onUseAsRef?: () => voi
           void attempt(() =>
             invoke('blobs.saveAs', {
               sha256: sha,
-              suggestedName: `aitech-${sha.slice(0, 8)}.${EXT['image/png']}`,
+              suggestedName: `anydot-${sha.slice(0, 8)}.${EXT['image/png']}`,
             }),
           )
         }

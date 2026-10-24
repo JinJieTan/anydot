@@ -1,4 +1,4 @@
-# aitech
+# AnyDot
 
 开源的 AI 桌面客户端 + 手机端。填入 `base_url + key` 就能用 GPT、Claude、gpt-image 和视频模型；桌面端可以像 Claude 桌面端一样在项目里写代码、跑命令；手机扫码配对后可以远程派任务、确认操作。
 
@@ -16,23 +16,23 @@
 
 | 系统                            | 文件                                    |
 | ------------------------------- | --------------------------------------- |
-| macOS（Apple 芯片 M1/M2/M3/M4） | `aitech-版本号-mac-arm64.dmg`           |
-| macOS（Intel 芯片）             | `aitech-版本号-mac-x64.dmg`             |
-| Windows（绝大多数电脑）         | `aitech-版本号-windows-x64-setup.exe`   |
-| Windows（ARM 设备）             | `aitech-版本号-windows-arm64-setup.exe` |
+| macOS（Apple 芯片 M1/M2/M3/M4） | `AnyDot-版本号-mac-arm64.dmg`           |
+| macOS（Intel 芯片）             | `AnyDot-版本号-mac-x64.dmg`             |
+| Windows（绝大多数电脑）         | `AnyDot-版本号-windows-x64-setup.exe`   |
+| Windows（ARM 设备）             | `AnyDot-版本号-windows-arm64-setup.exe` |
 
 安装包没有使用付费的开发者证书签名，所以第一次打开时系统会拦一下，按下面操作一次即可，以后正常打开。
 
 **macOS**
 
-1. 打开 dmg，把 aitech 拖到“应用程序”。
+1. 打开 dmg，把 AnyDot 拖到“应用程序”。
 2. 双击打开，系统提示“无法验证开发者”或“Apple 无法检查其是否包含恶意软件”时，点“完成”或“取消”。
-3. 打开“系统设置 → 隐私与安全性”，在页面下方找到 aitech，点“仍要打开”，输入开机密码确认。
+3. 打开“系统设置 → 隐私与安全性”，在页面下方找到 AnyDot，点“仍要打开”，输入开机密码确认。
 
 如果提示“已损坏，无法打开”，在“终端”里运行下面这条命令后再打开：
 
 ```bash
-xattr -cr /Applications/aitech.app
+xattr -cr /Applications/AnyDot.app
 ```
 
 **Windows**
@@ -42,7 +42,7 @@ xattr -cr /Applications/aitech.app
 **更新与已知限制**
 
 - 目前没有自动更新，新版本需要到 Releases 下载后覆盖安装。数据保存在用户目录，覆盖安装不会丢失。
-- macOS 上更新后，系统可能会再次询问是否允许 aitech 使用钥匙串（输入开机密码，点“始终允许”）；用到“电脑操作”功能的话，可能需要在“隐私与安全性”里重新勾选辅助功能和录屏权限。这是没有付费签名的应用在 macOS 上的正常现象。
+- macOS 上更新后，系统可能会再次询问是否允许 AnyDot 使用钥匙串（输入开机密码，点“始终允许”）；用到“电脑操作”功能的话，可能需要在“隐私与安全性”里重新勾选辅助功能和录屏权限。这是没有付费签名的应用在 macOS 上的正常现象。
 - 出现问题时，在“设置 → 关于”里点“打开日志文件夹”，把 `main.log` 附在 issue 里（日志会自动隐去 API Key）。
 
 ## 开发

@@ -165,7 +165,7 @@ export function macDriver(): NativeDriver {
         return new Uint8Array(await readFile(out))
       } catch (err) {
         throw new Error(
-          `截屏失败：${(err as Error).message}。请在“系统设置 → 隐私与安全性 → 录屏与系统录音”中允许 aitech。`,
+          `截屏失败：${(err as Error).message}。请在“系统设置 → 隐私与安全性 → 录屏与系统录音”中允许 AnyDot。`,
           { cause: err },
         )
       } finally {

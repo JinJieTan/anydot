@@ -60,7 +60,7 @@ describe('task tool', () => {
     }
     ctx.subagent = createSubagent({
       model,
-      system: 'You are a sub-agent of aitech.',
+      system: 'You are a sub-agent of AnyDot.',
       tools: ALL_TOOLS,
       ctx,
       mode: 'ask',

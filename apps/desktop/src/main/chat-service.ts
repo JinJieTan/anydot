@@ -586,7 +586,7 @@ function computerBlocked(): string | undefined {
   if (!missing.length) return undefined
   return (
     `Computer use is missing macOS permissions: ${missing.join('、')}. ` +
-    'Tell the user to grant them in aitech 设置 → Agent 能力, then try again.'
+    'Tell the user to grant them in AnyDot 设置 → Agent 能力, then try again.'
   )
 }
 

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, protocol, shell } from 'electron'
@@ -32,12 +32,18 @@ const BLOB_SCHEME = 'aitech-blob'
 
 // Separate data dir for development and automated tests.
 if (process.env['AITECH_USER_DATA']) app.setPath('userData', process.env['AITECH_USER_DATA'])
+else {
+  // The app was called aitech before AnyDot; move its data folder over once.
+  const legacy = join(app.getPath('appData'), 'aitech')
+  const current = app.getPath('userData')
+  if (legacy !== current && !existsSync(current) && existsSync(legacy)) renameSync(legacy, current)
+}
 
 // Logs live next to the data, so a support request needs just one folder.
 app.setAppLogsPath(join(app.getPath('userData'), 'logs'))
 const logger = new Logger(app.getPath('logs'))
 logger.captureConsole()
-console.info(`aitech ${app.getVersion()} starting (${process.platform} ${process.arch})`)
+console.info(`AnyDot ${app.getVersion()} starting (${process.platform} ${process.arch})`)
 
 // An error in one handler shouldn't take the whole app (and the user's running tasks) down.
 process.on('uncaughtException', (err) => console.error('[uncaught exception]', err))
@@ -125,7 +131,7 @@ function createWindow(): void {
     minWidth: 860,
     minHeight: 560,
     show: false,
-    title: 'aitech',
+    title: 'AnyDot',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',

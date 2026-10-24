@@ -280,7 +280,7 @@ export function registerIpc({
           .replace(/[^\w.-]+/g, '-')
           .slice(0, 40) || 'project'
       const path = join(app.getPath('userData'), 'worktrees', `${slug}-${short}`)
-      const branch = `aitech/${short}`
+      const branch = `anydot/${short}`
       await mkdir(dirname(path), { recursive: true })
       await addWorktree(project.rootPath, path, branch)
       return store.updateConversation(id, { worktreePath: path, worktreeBranch: branch })
@@ -453,7 +453,7 @@ export function registerIpc({
       const win = BrowserWindow.getFocusedWindow()
       const date = new Date().toISOString().slice(0, 10)
       const opts = {
-        defaultPath: `aitech-backup-${date}.zip`,
+        defaultPath: `anydot-backup-${date}.zip`,
         filters: [{ name: 'Zip', extensions: ['zip'] }],
       }
       const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)

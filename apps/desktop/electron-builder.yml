@@ -1,5 +1,5 @@
 appId: dev.aitech.desktop
-productName: aitech
+productName: AnyDot
 directories:
   output: release/${version}
   buildResources: build

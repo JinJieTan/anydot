@@ -62,10 +62,10 @@ const BROWSER_SECTION = [
 
 const CHROME_SECTION = [
   "# The user's Chrome",
-  '- The browser_* tools drive a tab (in a tab group named "aitech") of the user\'s own Chrome, through the aitech extension. It is signed in to the user\'s real accounts.',
+  '- The browser_* tools drive a tab (in a tab group named "AnyDot") of the user\'s own Chrome, through the AnyDot extension. It is signed in to the user\'s real accounts.',
   '- Use them for interactive pages, JavaScript-heavy sites, sites the user is signed in to and checking a local dev server. For plain reading, web_fetch is cheaper.',
   '- Act on elements by the refs from the latest snapshot; take a new snapshot when the page changes.',
-  '- You only see and control the aitech tab, not the rest of the browser.',
+  '- You only see and control the AnyDot tab, not the rest of the browser.',
   '- Never type passwords, payment details or other secrets. If a page needs a login, ask the user to sign in in that tab, then continue.',
   '- You act as the user on their real accounts: before anything irreversible or outward-facing (buying, sending, posting, deleting, changing settings), stop and ask the user.',
 ]
@@ -87,7 +87,7 @@ export function buildSubagentPrompt(opts: {
 }): string {
   const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
   return [
-    'You are a sub-agent of aitech. Another agent gave you the task below; your final message is the only thing it will see.',
+    'You are a sub-agent of AnyDot. Another agent gave you the task below; your final message is the only thing it will see.',
     '',
     '# Environment',
     `- Operating system: ${os}`,
@@ -125,7 +125,7 @@ export function buildSystemPrompt(opts: {
 }): string {
   const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
   const lines = [
-    "You are aitech, an AI coding agent working on the user's computer through tools.",
+    "You are AnyDot, an AI coding agent working on the user's computer through tools.",
     '',
     '# Environment',
     `- Operating system: ${os}`,
@@ -190,7 +190,7 @@ export function buildChatSystemPrompt(opts: {
 }): string {
   const os = opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux'
   const lines = [
-    "You are aitech, an AI assistant that can work on the user's computer through tools.",
+    "You are AnyDot, an AI assistant that can work on the user's computer through tools.",
     '',
     '# Environment',
     `- Operating system: ${os}`,

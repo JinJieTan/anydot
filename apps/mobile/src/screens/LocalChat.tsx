@@ -204,7 +204,7 @@ export function LocalChatScreen({ chatId }: { chatId: string }) {
               )}
               {m.text && <Markdown text={m.text} />}
               {m.images?.map((u, j) => (
-                <a key={j} href={u} download={`aitech-${j + 1}.png`}>
+                <a key={j} href={u} download={`anydot-${j + 1}.png`}>
                   <img src={u} alt="生成的图片" className="w-full rounded-xl" />
                 </a>
               ))}

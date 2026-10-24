@@ -19,7 +19,15 @@ export function encryptKey(key: string): string {
 export function decryptKey(ref: string | null): string | null {
   if (!ref) return null
   const [kind, data] = [ref.slice(0, ref.indexOf(':')), ref.slice(ref.indexOf(':') + 1)]
-  if (kind === 'os') return safeStorage.decryptString(Buffer.from(data, 'base64'))
+  if (kind === 'os') {
+    // Fails when the keychain entry changed (e.g. keys saved before the rename
+    // from aitech): treat the key as unset so the user can enter it again.
+    try {
+      return safeStorage.decryptString(Buffer.from(data, 'base64'))
+    } catch {
+      return null
+    }
+  }
   if (kind === 'plain') return Buffer.from(data, 'base64').toString('utf8')
   return null
 }

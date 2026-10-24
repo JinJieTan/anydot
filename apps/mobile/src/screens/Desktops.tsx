@@ -17,7 +17,7 @@ export function DesktopsScreen() {
       <Header title="我的电脑" />
       {desktops.length === 0 ? (
         <Empty icon={<QrCode className="size-7" />} title="还没有配对电脑">
-          在电脑上打开 aitech → 设置 → 手机连接 → 绑定手机，
+          在电脑上打开 AnyDot → 设置 → 手机连接 → 绑定手机，
           <br />
           然后用手机相机扫描二维码。
         </Empty>

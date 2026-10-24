@@ -67,13 +67,13 @@ export class AgentBrowser {
     // Pages never get camera, mic, location, notifications etc.
     ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
     // Look like the Chrome we are, not "Electron", which some sites block.
-    ses.setUserAgent(app.userAgentFallback.replace(/\s(aitech|Electron)\/\S+/g, ''))
+    ses.setUserAgent(app.userAgentFallback.replace(/\s(AnyDot|aitech|Electron)\/\S+/g, ''))
 
     const win = new BrowserWindow({
       width: 1200,
       height: 860,
       show: false,
-      title: 'aitech 浏览器',
+      title: 'AnyDot 浏览器',
       webPreferences: {
         session: ses,
         sandbox: true,

@@ -612,7 +612,7 @@ function GeneralTab() {
       </Field>
       <Field
         label="全局快捷键"
-        hint="默认关闭。开启后在任何应用中按下即可打开 aitech 并新建对话，aitech 在前台时再按一次会隐藏"
+        hint="默认关闭。开启后在任何应用中按下即可打开 AnyDot 并新建对话，AnyDot 在前台时再按一次会隐藏"
       >
         <ShortcutInput
           value={settings.globalShortcut}
@@ -624,7 +624,7 @@ function GeneralTab() {
         hint={
           isMac
             ? '在菜单栏显示图标，可以快速新建对话'
-            : '在托盘显示图标；开启时关闭窗口后 aitech 继续在后台运行（定时任务、手机连接）'
+            : '在托盘显示图标；开启时关闭窗口后 AnyDot 继续在后台运行（定时任务、手机连接）'
         }
       >
         <Toggle
@@ -759,7 +759,7 @@ function AboutTab() {
   ]
   return (
     <div className="max-w-xl p-6">
-      <h2 className="text-base font-semibold">aitech</h2>
+      <h2 className="text-base font-semibold">AnyDot</h2>
       <p className="mt-1 text-sm text-fg-soft">
         开源 AI 桌面客户端：填入 Base URL 和 Key，使用 GPT、Claude 与 gpt-image。
       </p>

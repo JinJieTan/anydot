@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "description": "aitech relay: pairs phones with desktops and forwards end-to-end encrypted messages",
+  "description": "AnyDot relay: pairs phones with desktops and forwards end-to-end encrypted messages",
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/server.mjs",

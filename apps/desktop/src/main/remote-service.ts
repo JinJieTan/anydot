@@ -172,7 +172,7 @@ export class RemoteService {
     try {
       const res = await fetch(infoUrl(s.relayUrl), { signal: AbortSignal.timeout(8000) })
       info = (await res.json()) as RelayInfo
-      if (info.name !== 'aitech-relay') throw new Error('不是 aitech 中继服务')
+      if (info.name !== 'aitech-relay') throw new Error('不是 AnyDot 中继服务')
     } catch (err) {
       this.relayState = 'error'
       this.detail = `无法访问中继：${(err as Error).message}`

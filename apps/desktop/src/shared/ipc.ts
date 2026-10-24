@@ -143,7 +143,7 @@ export interface CommandDTO {
   scope: 'project' | 'user'
 }
 
-/** The aitech Chrome extension's connection to the app. */
+/** The AnyDot Chrome extension's connection to the app. */
 export interface ChromeExtStatus {
   /** The app is listening for the extension (Chrome backend selected). */
   listening: boolean

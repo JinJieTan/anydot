@@ -1,4 +1,4 @@
-// aitech 浏览器助手: connects to the aitech desktop app on this machine over a
+// AnyDot 浏览器助手: connects to the AnyDot desktop app on this machine over a
 // local WebSocket and runs its browser_* commands in one tab of this Chrome.
 //
 // Protocol (JSON text frames):
@@ -36,7 +36,7 @@ function connect() {
         const sock = await open(port)
         if (sock) return adopt(sock, port)
       }
-      setState({ connected: false, port: null, error: '没有找到正在运行的 aitech 桌面端' })
+      setState({ connected: false, port: null, error: '没有找到正在运行的 AnyDot 桌面端' })
     } finally {
       connecting = null
     }
@@ -162,7 +162,7 @@ async function agentTab(create) {
   }
   try {
     const group = await chrome.tabs.group({ tabIds: tab.id })
-    await chrome.tabGroups.update(group, { title: 'aitech', color: 'blue' })
+    await chrome.tabGroups.update(group, { title: 'AnyDot', color: 'blue' })
   } catch {
     // tab groups are cosmetic
   }

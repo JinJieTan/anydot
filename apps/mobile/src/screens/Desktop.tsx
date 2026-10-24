@@ -69,7 +69,7 @@ export function DesktopScreen({ desktopId }: { desktopId: string }) {
           {st?.online === false ? (
             <div className="text-center text-sm text-fg-soft">
               {st.error ?? '电脑不在线'}
-              <div className="mt-1 text-xs text-fg-faint">请确认电脑已开机，且 aitech 正在运行</div>
+              <div className="mt-1 text-xs text-fg-faint">请确认电脑已开机，且 AnyDot 正在运行</div>
             </div>
           ) : (
             <Spinner />

@@ -58,7 +58,7 @@ export function RemoteTab() {
       <section className="space-y-4">
         <Field
           label="中继地址"
-          hint="你的中转站如果部署了 aitech 中继，点“自动检测”即可；也可以填写自己部署的中继地址。"
+          hint="你的中转站如果部署了 AnyDot 中继，点“自动检测”即可；也可以填写自己部署的中继地址。"
         >
           <div className="flex gap-2">
             <Input

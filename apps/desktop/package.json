@@ -1,10 +1,10 @@
 {
   "name": "@aitech/desktop",
-  "productName": "aitech",
+  "productName": "AnyDot",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
-  "description": "aitech desktop client",
+  "description": "AnyDot desktop client",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

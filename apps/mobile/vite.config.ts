@@ -19,8 +19,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: false,
       manifest: {
-        name: 'aitech',
-        short_name: 'aitech',
+        name: 'AnyDot',
+        short_name: 'AnyDot',
         description: '在手机上使用 AI，并远程控制你的电脑',
         lang: 'zh-CN',
         start_url: base,

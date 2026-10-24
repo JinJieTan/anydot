@@ -61,7 +61,7 @@ function ChromeExtensionPanel() {
   return (
     <div className="mt-4 space-y-3 rounded-lg border border-line px-4 py-3">
       <div className="flex items-center gap-2">
-        <div className="text-sm font-medium">aitech 浏览器助手（Chrome 插件）</div>
+        <div className="text-sm font-medium">AnyDot 浏览器助手（Chrome 插件）</div>
         {connected ? (
           <Badge tone="accent">已连接 v{status.extensionVersion}</Badge>
         ) : (
@@ -70,19 +70,19 @@ function ChromeExtensionPanel() {
       </div>
       {outdated && (
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          插件版本（{status.extensionVersion}）和 aitech 自带的版本（{status.expectedVersion}
+          插件版本（{status.extensionVersion}）和 AnyDot 自带的版本（{status.expectedVersion}
           ）不一致，请在 chrome://extensions 里点一下插件的刷新按钮。
         </p>
       )}
       {status && !status.listening && (
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          aitech 没能在本机端口上等待插件连接，可能端口被占用了，可以尝试重启 aitech。
+          AnyDot 没能在本机端口上等待插件连接，可能端口被占用了，可以尝试重启 AnyDot。
         </p>
       )}
       {!connected && (
         <ol className="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-fg-soft">
           <li>
-            点击“安装到 Chrome”。aitech 会准备好插件文件夹并在
+            点击“安装到 Chrome”。AnyDot 会准备好插件文件夹并在
             {navigator.userAgent.includes('Mac') ? '访达' : '文件管理器'}
             里显示，同时打开 Chrome 的扩展程序页面（地址 chrome://extensions 已复制到剪贴板）。
           </li>
@@ -90,7 +90,7 @@ function ChromeExtensionPanel() {
           <li>
             点击“加载已解压的扩展程序”，选择 chrome-extension 文件夹，也可以直接把文件夹拖进页面。
           </li>
-          <li>装好后插件会自动连接，这里会显示“已连接”。之后 aitech 更新时插件会自动跟着更新。</li>
+          <li>装好后插件会自动连接，这里会显示“已连接”。之后 AnyDot 更新时插件会自动跟着更新。</li>
         </ol>
       )}
       <div className="flex flex-wrap gap-2">
@@ -121,8 +121,8 @@ function ChromeExtensionPanel() {
         </div>
       )}
       <p className="text-xs leading-relaxed text-fg-faint">
-        Agent 会使用你 Chrome 里已登录的账号，但只操作它自己打开的“aitech”标签组。操作期间 Chrome
-        顶部会显示“正在调试此浏览器”的提示条。插件只和本机的 aitech 通信； 不用的时候可以在
+        Agent 会使用你 Chrome 里已登录的账号，但只操作它自己打开的“AnyDot”标签组。操作期间 Chrome
+        顶部会显示“正在调试此浏览器”的提示条。插件只和本机的 AnyDot 通信； 不用的时候可以在
         chrome://extensions 里关掉它。
       </p>
     </div>
@@ -216,7 +216,7 @@ export function AutomationTab() {
                 void updateSettings({ browserBackend: e.target.value as 'builtin' | 'chrome' })
               }
             >
-              <option value="builtin">aitech 内置浏览器（登录状态独立，推荐）</option>
+              <option value="builtin">AnyDot 内置浏览器（登录状态独立，推荐）</option>
               <option value="chrome">我的 Chrome（需要安装插件，使用已登录的账号）</option>
             </Select>
           </Field>
@@ -292,7 +292,7 @@ export function AutomationTab() {
             />
             <PermissionRow
               label="录屏与系统录音"
-              hint="截取屏幕；授权后可能需要重启 aitech"
+              hint="截取屏幕；授权后可能需要重启 AnyDot"
               granted={perms.screen === 'granted'}
               onRequest={() => void request('screen')}
             />

@@ -37,7 +37,7 @@ interface Pending {
 }
 
 /**
- * Local WebSocket server the aitech Chrome extension connects to. Only the
+ * Local WebSocket server the AnyDot Chrome extension connects to. Only the
  * extension's own origin is accepted, so web pages can't talk to it.
  */
 export class ChromeBridge {
@@ -186,7 +186,7 @@ export class ChromeBridge {
     if (!sock || !this.ext) {
       return Promise.reject(
         new Error(
-          'The aitech Chrome extension is not connected. Ask the user to open Chrome and make sure the extension is installed and enabled (aitech Settings → Automation), or to switch back to the built-in browser.',
+          'The AnyDot Chrome extension is not connected. Ask the user to open Chrome and make sure the extension is installed and enabled (AnyDot Settings → Automation), or to switch back to the built-in browser.',
         ),
       )
     }

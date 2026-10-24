@@ -59,7 +59,7 @@ export async function prepareInstall(): Promise<{ dir: string; chromeOpened: boo
 export async function exportExtensionZip(): Promise<{ path: string } | null> {
   const win = BrowserWindow.getFocusedWindow()
   const opts = {
-    defaultPath: join(app.getPath('downloads'), `aitech-chrome-extension-${EXTENSION_VERSION}.zip`),
+    defaultPath: join(app.getPath('downloads'), `anydot-chrome-extension-${EXTENSION_VERSION}.zip`),
     filters: [{ name: 'Zip', extensions: ['zip'] }],
   }
   const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
@@ -67,7 +67,7 @@ export async function exportExtensionZip(): Promise<{ path: string } | null> {
   const zip = zipSync(
     Object.fromEntries(
       Object.entries(FILES).map(([name, text]) => [
-        `aitech-chrome-extension/${name}`,
+        `anydot-chrome-extension/${name}`,
         strToU8(text),
       ]),
     ),

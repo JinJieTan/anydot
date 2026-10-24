@@ -66,7 +66,7 @@ export class WebSearch {
     if (this.win && !this.win.isDestroyed()) return this.win
     const ses = session.fromPartition('persist:aitech-search')
     ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
-    ses.setUserAgent(app.userAgentFallback.replace(/\s(aitech|Electron)\/\S+/g, ''))
+    ses.setUserAgent(app.userAgentFallback.replace(/\s(AnyDot|aitech|Electron)\/\S+/g, ''))
     const win = new BrowserWindow({
       show: false,
       width: 1200,

@@ -60,7 +60,7 @@ self.addEventListener('push', (event) => {
         // fall through to a generic notification (one must be shown)
       }
       const scope = self.registration.scope
-      await self.registration.showNotification(n?.title ?? 'aitech', {
+      await self.registration.showNotification(n?.title ?? 'AnyDot', {
         body: n?.body ?? '你的电脑有新动态',
         tag: n?.tag,
         icon: `${scope}icon-192.png`,
