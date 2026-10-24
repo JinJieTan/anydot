@@ -8,6 +8,10 @@
 - **手机连接**：扫码配对、端到端加密、远程派任务和审批、推送通知；手机也可以直接对话和生图
 - **数据只在本地**：SQLite + 内容寻址的文件存储，支持导出 / 导入；API Key 用系统钥匙串加密
 
+[![观看 AnyDot 20 秒介绍视频](docs/images/video-cover.jpg)](apps/site/videos/anydot-demo.mp4)
+
+<p align="center">▶ 点击上图观看 20 秒介绍视频</p>
+
 ![AnyDot 桌面端](docs/images/screenshot-code.png)
 
 ![让 AI 操作浏览器](docs/images/screenshot-browser.png)

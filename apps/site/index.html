@@ -114,6 +114,17 @@
         box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
         margin: 0 0 20px;
       }
+      .video {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        background: var(--panel);
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+        margin: 0 0 20px;
+      }
       .caption {
         color: var(--faint);
         font-size: 14px;
@@ -229,6 +240,21 @@
           >安装说明</a
         >
       </p>
+      <video
+        class="video"
+        src="/videos/anydot-demo.mp4"
+        poster="/images/video-poster.jpg"
+        width="1920"
+        height="1080"
+        autoplay
+        muted
+        loop
+        playsinline
+        controls
+        preload="metadata"
+        aria-label="AnyDot 20 秒介绍视频"
+      ></video>
+      <p class="caption">20 秒看懂 AnyDot：一个 URL、一个 Key，连接所有 AI</p>
       <img
         class="shot"
         src="/images/screenshot-code.png"
