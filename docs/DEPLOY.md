@@ -71,7 +71,7 @@ location /ctl/ {
 这样：
 
 - 中继地址：`https://api.example.com/ctl`
-- 手机网页：`https://api.example.com/ctl/m/`（`PUBLIC_URL` 要设为 `https://api.example.com/ctl`）
+- 手机网页：`https://api.example.com/ctl/m/`（`PUBLIC_URL` 要设为 `https://api.example.com/ctl`，构建镜像时加 `--build-arg MOBILE_BASE=/ctl/m/`，否则网页资源路径不对，会白屏）
 
 > 手机网页的 Service Worker 和推送通知需要 HTTPS。
 

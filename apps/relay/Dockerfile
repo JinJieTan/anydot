@@ -1,12 +1,15 @@
 # AnyDot relay + mobile web app, one image.
 # Build from the repository root:  docker build -f apps/relay/Dockerfile -t aitech-relay .
+# (add --build-arg MOBILE_BASE=/ctl/m/ when the relay is served under /ctl/)
 FROM node:24-alpine AS build
 RUN corepack enable
+# Public path of the mobile app: behind a /ctl/ proxy use --build-arg MOBILE_BASE=/ctl/m/
+ARG MOBILE_BASE=/m/
 WORKDIR /src
 COPY . .
 RUN pnpm install --frozen-lockfile \
  && pnpm --filter @aitech/relay build \
- && pnpm --filter @aitech/mobile build
+ && VITE_BASE=$MOBILE_BASE pnpm --filter @aitech/mobile build
 
 FROM node:24-alpine
 WORKDIR /app
