@@ -3,6 +3,7 @@ import {
   infoUrl,
   randomId,
   RelayClient,
+  verificationCode,
   type AppMessage,
   type ClientAuth,
   type Identity,
@@ -45,6 +46,35 @@ export class RemoteHub {
 
   get deviceId() {
     return this.identity.deviceId
+  }
+
+  /** The digits both screens show while pairing with this desktop key. */
+  checkCode(desktopKey: string): string {
+    return verificationCode(this.identity.publicKey, fromB64url(desktopKey))
+  }
+
+  /** Find the desktop that is showing this pairing code, through the relay. */
+  async lookup(relayUrl: string, code: string): Promise<PairingPayload> {
+    const client = await this.ready(relayUrl)
+    let offer
+    try {
+      offer = await client.lookupPairing(code)
+    } catch (err) {
+      const c = (err as { code?: string }).code
+      // An older relay ignores the request and the call times out.
+      if (!c) throw new Error('这个中继不支持输入配对码，请在电脑上扫码配对', { cause: err })
+      throw err
+    }
+    return {
+      v: 1,
+      r: relayUrl,
+      d: offer.deviceId,
+      k: offer.publicKey,
+      c: code,
+      n: offer.name || '电脑',
+      e: offer.expiresAt,
+      typed: true,
+    }
   }
 
   async connect(relayUrl: string): Promise<RelayClient> {

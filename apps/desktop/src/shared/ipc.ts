@@ -223,6 +223,8 @@ export interface PairRequestDTO {
   requestId: string
   name: string
   platform: string
+  /** Four digits the phone shows too; they match unless someone swapped keys in between. */
+  check: string
 }
 
 export interface ConversationDetail {

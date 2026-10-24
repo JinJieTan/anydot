@@ -103,3 +103,20 @@ export function pairingCode(): string {
   for (const b of bytes) s += alphabet[b % alphabet.length]
   return `${s.slice(0, 4)}-${s.slice(4)}`
 }
+
+/** "4f7k 9qxa", "4F7K-9QXA" → "4F7K9QXA", for comparing typed codes. */
+export function normalizePairingCode(code: string): string {
+  return code.toUpperCase().replace(/[^0-9A-Z]/g, '')
+}
+
+/**
+ * Four digits both sides show while pairing, computed from the two public
+ * keys. When the phone found the desktop through the relay (typed code), the
+ * user compares them to rule out a relay that swapped in its own key.
+ */
+export function verificationCode(a: Uint8Array, b: Uint8Array): string {
+  const [x, y] = [b64url(a), b64url(b)].sort()
+  const h = sha256(enc.encode(`aitech-pair-v1|${x}|${y}`))
+  const n = ((h[0]! << 24) | (h[1]! << 16) | (h[2]! << 8) | h[3]!) >>> 0
+  return String(n % 10_000).padStart(4, '0')
+}

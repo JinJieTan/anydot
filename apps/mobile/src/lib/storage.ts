@@ -94,3 +94,13 @@ export async function loadChats(): Promise<LocalChat[]> {
 export async function saveChats(chats: LocalChat[]) {
   await set('chats', chats, kv)
 }
+
+/**
+ * The relay this web app is served from: https://anydot.app/ctl for
+ * https://anydot.app/ctl/m/. In development (served from the dev server) it's
+ * the official relay.
+ */
+export function servingRelayUrl(): string {
+  const m = /^(.*)\/m(\/.*)?$/.exec(location.pathname)
+  return m ? `${location.origin}${m[1]}` : 'https://anydot.app/ctl'
+}

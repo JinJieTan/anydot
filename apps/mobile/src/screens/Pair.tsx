@@ -11,6 +11,7 @@ export function PairScreen({ payload, onDone }: { payload: PairingPayload; onDon
   const [state, setState] = useState<'idle' | 'waiting' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
   const already = desktops.some((d) => d.deviceId === payload.d)
+  const check = hub?.checkCode(payload.k)
   const expired = payload.e < Date.now()
 
   const start = async () => {
@@ -48,6 +49,18 @@ export function PairScreen({ payload, onDone }: { payload: PairingPayload; onDon
         </p>
         <p className="mt-3 font-mono text-sm tracking-widest text-fg-faint">{payload.c}</p>
       </div>
+
+      {check && (
+        <div className="mt-6 rounded-2xl border border-line bg-surface px-4 py-3 text-center">
+          <div className="text-xs text-fg-soft">校验码</div>
+          <div className="mt-0.5 font-mono text-3xl font-semibold tracking-[0.3em]">{check}</div>
+          <div className="mt-1 text-xs text-fg-faint">
+            {payload.typed
+              ? '电脑上会显示同样的数字，一致再点“允许”；对不上请拒绝'
+              : '电脑上会显示同样的数字'}
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 space-y-4">
         <Field label="这台手机的名称" hint="会显示在电脑上，方便你确认">
@@ -88,7 +101,13 @@ export function PairScreen({ payload, onDone }: { payload: PairingPayload; onDon
           disabled={expired || state === 'waiting' || state === 'done'}
           onClick={() => void start()}
         >
-          {expired ? '二维码已过期，请在电脑上重新生成' : state === 'error' ? '重试' : '发起配对'}
+          {expired
+            ? payload.typed
+              ? '配对码已过期，请在电脑上重新生成'
+              : '二维码已过期，请在电脑上重新生成'
+            : state === 'error'
+              ? '重试'
+              : '发起配对'}
         </Button>
         <Button variant="ghost" className="mt-2 w-full" onClick={onDone}>
           取消

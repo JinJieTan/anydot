@@ -36,6 +36,11 @@ export interface PairingPayload {
   n: string
   /** Expiry, ms since epoch. */
   e: number
+  /**
+   * Found through the relay by a typed code rather than scanned: the desktop
+   * key came via the relay, so the check digits matter. Never in a QR.
+   */
+  typed?: boolean
 }
 
 const MAX_SKEW_MS = 10 * 60_000

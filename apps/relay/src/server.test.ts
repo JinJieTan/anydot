@@ -107,6 +107,32 @@ describe('relay', () => {
     })
   })
 
+  it('lets a phone find a desktop by its typed pairing code', async () => {
+    const r = await relay()
+    const desk = client(r.url, { kind: 'desktop' })
+    const phone = client(r.url)
+    await until(() => desk.c.state === 'online' && phone.c.state === 'online')
+
+    await expect(phone.c.offerPairing('ABCD-EFGH', 'x', Date.now() + 60_000)).rejects.toMatchObject(
+      { code: 'bad_frame' },
+    )
+    await desk.c.offerPairing('ABCD-EFGH', 'My Mac', Date.now() + 60_000)
+    expect(await phone.c.lookupPairing(' abcd efgh ')).toMatchObject({
+      deviceId: desk.identity.deviceId,
+      name: 'My Mac',
+    })
+
+    // A new code replaces the old one.
+    await desk.c.offerPairing('JKLM-NPQR', 'My Mac', Date.now() + 60_000)
+    await expect(phone.c.lookupPairing('ABCD-EFGH')).rejects.toMatchObject({ code: 'not_found' })
+
+    // Guessing is rate-limited per address.
+    for (let i = 0; i < 8; i++) await phone.c.lookupPairing('ZZZZ-ZZZZ').catch(() => {})
+    await expect(phone.c.lookupPairing('JKLM-NPQR')).rejects.toMatchObject({
+      code: 'rate_limited',
+    })
+  })
+
   it('token mode rejects clients without the token', async () => {
     const r = await relay({ auth: 'token', authToken: 'secret' })
     const bad = client(r.url, { auth: { token: 'nope' } })

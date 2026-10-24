@@ -36,6 +36,10 @@ export type ClientFrame =
   | { t: 'push'; id: string; to: string; payload: string }
   | { t: 'push.subscribe'; subscription: PushSubscriptionJSON }
   | { t: 'presence'; id: string; ids: string[] }
+  /** Desktop: let phones find it by typing this pairing code (until expiresAt). */
+  | { t: 'pair.offer'; id: string; code: string; name: string; expiresAt: number }
+  /** Phone: which desktop offered this code? */
+  | { t: 'pair.lookup'; id: string; code: string }
   | { t: 'ping' }
 
 export type ServerFrame =
@@ -45,6 +49,7 @@ export type ServerFrame =
   | { t: 'ack'; id: string }
   | { t: 'error'; id?: string; code: ErrorCode; message: string }
   | { t: 'presence'; id: string; online: Record<string, boolean> }
+  | { t: 'pair.found'; id: string; offer: PairingOffer }
   | { t: 'pong' }
 
 export type ErrorCode =
@@ -55,6 +60,15 @@ export type ErrorCode =
   | 'too_large'
   | 'push_unavailable'
   | 'no_subscription'
+  | 'not_found'
+
+/** A desktop found by its pairing code. */
+export interface PairingOffer {
+  deviceId: string
+  publicKey: string
+  name: string
+  expiresAt: number
+}
 
 export interface PushSubscriptionJSON {
   endpoint: string

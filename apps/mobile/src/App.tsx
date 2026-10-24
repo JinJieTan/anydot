@@ -3,6 +3,7 @@ import { MessageSquare, Monitor, Settings } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { parsePairing, type PairingPayload } from '@aitech/protocol'
 import { Spinner } from './components/ui'
+import { AddDesktopScreen } from './screens/AddDesktop'
 import { go, useRoute } from './lib/router'
 import { ChatsScreen } from './screens/Chats'
 import { DesktopScreen } from './screens/Desktop'
@@ -64,6 +65,7 @@ export function App() {
     screen = <RemoteConversationScreen desktopId={b} conversationId={d} />
   else if (a === 'd' && b) screen = <DesktopScreen desktopId={b} />
   else if (a === 'chat' && b) screen = <LocalChatScreen chatId={b} />
+  else if (a === 'add') screen = <AddDesktopScreen />
   else if (a === 'chats') {
     screen = <ChatsScreen />
     tab = 'chats'

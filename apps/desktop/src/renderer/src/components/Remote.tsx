@@ -56,30 +56,38 @@ export function RemoteTab() {
       </section>
 
       <section className="space-y-4">
-        <Field
-          label="中继地址"
-          hint={
-            remote.relayUrl === OFFICIAL_RELAY_URL
-              ? '默认使用 AnyDot 官方中继，不用改。也可以点“自动检测”找你的中转站上部署的中继，或填写自己部署的中继地址。'
-              : '正在使用自定义中继。点“恢复默认”可以换回 AnyDot 官方中继。'
-          }
-        >
-          <div className="flex gap-2">
-            <Input
-              value={relayUrl}
-              onChange={(e) => setRelayUrl(e.target.value)}
-              placeholder={OFFICIAL_RELAY_URL}
-            />
-            {remote.relayUrl !== OFFICIAL_RELAY_URL && (
-              <Button
+        <Field label="中继">
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-soft">
+              {remote.relayUrl}
+            </span>
+            {remote.relayUrl === OFFICIAL_RELAY_URL ? (
+              <span className="shrink-0 text-xs text-fg-faint">AnyDot 官方</span>
+            ) : (
+              <button
+                type="button"
+                className="shrink-0 text-xs text-accent hover:underline"
                 onClick={async () => {
                   if (await configure({ relayUrl: null, enabled: true }))
                     setRelayUrl(OFFICIAL_RELAY_URL)
                 }}
               >
-                恢复默认
-              </Button>
+                恢复官方中继
+              </button>
             )}
+          </div>
+        </Field>
+
+        <details className="group text-sm" open={remote.relayUrl !== OFFICIAL_RELAY_URL}>
+          <summary className="cursor-pointer text-xs text-fg-faint select-none hover:text-fg-soft">
+            使用自己部署的中继（高级）
+          </summary>
+          <div className="mt-2 flex gap-2">
+            <Input
+              value={relayUrl}
+              onChange={(e) => setRelayUrl(e.target.value)}
+              placeholder={OFFICIAL_RELAY_URL}
+            />
             <Button
               loading={detecting}
               onClick={async () => {
@@ -103,7 +111,10 @@ export function RemoteTab() {
               保存
             </Button>
           </div>
-        </Field>
+          <p className="mt-1.5 text-xs text-fg-faint">
+            一般不用改。只有自己部署了 AnyDot 中继，或者中转站提供了中继时才需要填。
+          </p>
+        </details>
 
         {remote.authMode === 'token' && (
           <Field
@@ -259,7 +270,10 @@ function PairModal({
             </div>
           )}
           <p className="mt-4 text-sm text-fg-soft">用手机相机扫描二维码，在打开的网页中完成配对</p>
-          <p className="mt-1 font-mono text-lg tracking-widest">{pairing.code}</p>
+          <p className="mt-4 text-xs text-fg-faint">
+            或者在手机上打开 anydot.app → 在线控制电脑 → 添加电脑，输入配对码
+          </p>
+          <p className="mt-1.5 font-mono text-2xl font-semibold tracking-[0.2em]">{pairing.code}</p>
           <p className="mt-1 text-xs text-fg-faint">
             {left > 0 ? `${left} 秒后过期` : '请关闭后重新生成'}
           </p>
@@ -308,9 +322,16 @@ export function PairRequestDialog() {
               <div className="text-xs text-fg-faint">{req.platform}</div>
             </div>
           </div>
+          <div className="mt-4 rounded-xl bg-muted px-4 py-3 text-center">
+            <div className="text-xs text-fg-soft">校验码</div>
+            <div className="mt-0.5 font-mono text-2xl font-semibold tracking-[0.3em]">
+              {req.check}
+            </div>
+            <div className="mt-0.5 text-xs text-fg-faint">请确认和手机上显示的一致</div>
+          </div>
           <p className="mt-4 text-sm leading-relaxed text-fg-soft">
             允许后，这台设备可以查看你的对话和项目、给这台电脑派任务，并确认 AI 的操作。
-            如果这不是你刚刚扫码的手机，请拒绝。
+            如果这不是你刚刚配对的手机，或者校验码对不上，请拒绝。
           </p>
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => void respond(false)}>

@@ -14,6 +14,7 @@ import type {
   ClientAuth,
   ClientFrame,
   DeviceKind,
+  PairingOffer,
   PushSubscriptionJSON,
   RelayInfo,
   ServerFrame,
@@ -166,6 +167,10 @@ export class RelayClient {
         this.pending.get(f.id)?.resolve(f.online)
         this.pending.delete(f.id)
         break
+      case 'pair.found':
+        this.pending.get(f.id)?.resolve(f.offer)
+        this.pending.delete(f.id)
+        break
       case 'error':
         if (f.id && this.pending.has(f.id)) {
           this.pending.get(f.id)!.reject(Object.assign(new Error(f.message), { code: f.code }))
@@ -253,6 +258,16 @@ export class RelayClient {
 
   presence(ids: string[]): Promise<Record<string, boolean>> {
     return this.request({ t: 'presence', id: randomId(), ids })
+  }
+
+  /** Desktop: register a pairing code with the relay so a phone can type it instead of scanning. */
+  offerPairing(code: string, name: string, expiresAt: number): Promise<void> {
+    return this.request({ t: 'pair.offer', id: randomId(), code, name, expiresAt })
+  }
+
+  /** Phone: find the desktop behind a typed pairing code. Rejects with code "not_found". */
+  lookupPairing(code: string): Promise<PairingOffer> {
+    return this.request({ t: 'pair.lookup', id: randomId(), code })
   }
 
   subscribePush(subscription: PushSubscriptionJSON): void {

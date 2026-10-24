@@ -6,9 +6,11 @@ import {
   createIdentity,
   fromB64url,
   infoUrl,
+  normalizePairingCode,
   pairingCode,
   pairingLink,
   RelayClient,
+  verificationCode,
   type AppMessage,
   type ClientAuth,
   type Identity,
@@ -222,7 +224,11 @@ export class RemoteService {
       onStatus: (st, detail) => {
         this.relayState = st
         this.detail = detail
-        if (st === 'online') void this.refreshPresence()
+        if (st === 'online') {
+          void this.refreshPresence()
+          // The relay keeps typed-code offers in memory: register again after a reconnect.
+          this.offerPairing()
+        }
         this.notify()
       },
       onInfo: (i) => (this.info = i),
@@ -321,8 +327,17 @@ export class RemoteService {
       e: expiresAt,
     })
     this.pairing = { link, code, expiresAt }
+    this.offerPairing()
     this.notify()
     return this.pairing
+  }
+
+  /** Let a phone find this desktop by typing the code instead of scanning the QR. */
+  private offerPairing() {
+    const p = this.pairing
+    if (!p || p.expiresAt < Date.now() || this.client?.state !== 'online') return
+    // Older relays don't know typed codes; scanning still works there.
+    this.client.offerPairing(p.code, this.deviceName, p.expiresAt).catch(() => {})
   }
 
   cancelPairing() {
@@ -380,7 +395,8 @@ export class RemoteService {
 
     if (body.type === 'pair.request') {
       const p = this.pairing
-      if (!p || p.expiresAt < Date.now() || body.code !== p.code) {
+      const code = normalizePairingCode(String(body.code ?? ''))
+      if (!p || p.expiresAt < Date.now() || code !== normalizePairingCode(p.code)) {
         await this.sendTo(fromKey, {
           type: 'pair.reject',
           reason: '配对码无效或已过期，请在电脑上重新生成二维码',
@@ -399,6 +415,7 @@ export class RemoteService {
         requestId,
         name: String(body.name || '手机'),
         platform: String(body.platform || ''),
+        check: verificationCode(this.identity.publicKey, fromKey),
       })
       return
     }

@@ -3,11 +3,13 @@ import {
   authMessage,
   createIdentity,
   deviceIdOf,
+  normalizePairingCode,
   open,
   pairingCode,
   seal,
   sharedKey,
   sign,
+  verificationCode,
   verify,
 } from './crypto'
 import { ReplayGuard } from './messages'
@@ -24,6 +26,17 @@ describe('identity and signatures', () => {
     expect(verify(a.publicKey, authMessage('n2'), sig)).toBe(false)
     expect(verify(createIdentity().publicKey, authMessage('n1'), sig)).toBe(false)
     expect(verify(a.publicKey, 'x', 'garbage')).toBe(false)
+  })
+})
+
+describe('typed-code pairing', () => {
+  it('normalizes codes and gives both sides the same four check digits', () => {
+    expect(normalizePairingCode(' 4f7k 9qxa ')).toBe(normalizePairingCode('4F7K-9QXA'))
+    const a = createIdentity()
+    const b = createIdentity()
+    const code = verificationCode(a.publicKey, b.publicKey)
+    expect(code).toMatch(/^\d{4}$/)
+    expect(verificationCode(b.publicKey, a.publicKey)).toBe(code)
   })
 })
 

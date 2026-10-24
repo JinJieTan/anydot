@@ -8,6 +8,8 @@ import {
   deviceIdOf,
   fromB64url,
   MAX_FRAME_BYTES,
+  normalizePairingCode,
+  type PairingOffer,
   verify,
   type ClientFrame,
   type DeviceKind,
@@ -23,6 +25,11 @@ import type { RelayConfig } from './config'
 import { PushService } from './push'
 
 export const VERSION = '0.1.0'
+
+/** Typed-code pairing: how long an offer may live, and lookups allowed per IP. */
+const MAX_OFFER_MS = 10 * 60_000
+const LOOKUPS_PER_IP = 10
+const LOOKUP_WINDOW = 60_000
 
 interface Conn {
   ws: WebSocket
@@ -80,6 +87,9 @@ export async function startRelay(
   })
 
   const feedback = new FeedbackStore(config.dataDir)
+  /** Pairing codes desktops registered, by normalized code. Memory only: they last minutes. */
+  const offers = new Map<string, PairingOffer>()
+  const lookups = new Map<string, number[]>()
 
   const loggedIn = () => [...devices.values()].flatMap((set) => [...set])
   const admin = createAdmin({
@@ -385,6 +395,47 @@ export async function startRelay(
         const online: Record<string, boolean> = {}
         for (const id of (f.ids ?? []).slice(0, 100)) online[id] = !!devices.get(id)?.size
         return send(ws, { t: 'presence', id: f.id, online })
+      }
+      case 'pair.offer': {
+        if (conn.kind !== 'desktop')
+          return send(ws, { t: 'error', id: f.id, code: 'bad_frame', message: 'desktops only' })
+        const code = normalizePairingCode(String(f.code ?? ''))
+        if (code.length < 8)
+          return send(ws, { t: 'error', id: f.id, code: 'bad_frame', message: 'code too short' })
+        const now = Date.now()
+        // One live code per desktop; drop expired ones while we're here.
+        for (const [k, o] of offers)
+          if (o.deviceId === conn.deviceId || o.expiresAt < now) offers.delete(k)
+        offers.set(code, {
+          deviceId: conn.deviceId,
+          publicKey: conn.publicKey!,
+          name: String(f.name ?? '').slice(0, 60),
+          expiresAt: Math.min(Number(f.expiresAt) || 0, now + MAX_OFFER_MS),
+        })
+        return send(ws, { t: 'ack', id: f.id })
+      }
+      case 'pair.lookup': {
+        const now = Date.now()
+        const recent = (lookups.get(conn.ip) ?? []).filter((t) => t > now - LOOKUP_WINDOW)
+        if (recent.length >= LOOKUPS_PER_IP)
+          return send(ws, {
+            t: 'error',
+            id: f.id,
+            code: 'rate_limited',
+            message: '尝试次数过多，请一分钟后再试',
+          })
+        recent.push(now)
+        lookups.set(conn.ip, recent)
+        if (lookups.size > 10_000) lookups.clear()
+        const offer = offers.get(normalizePairingCode(String(f.code ?? '')))
+        if (!offer || offer.expiresAt < now)
+          return send(ws, {
+            t: 'error',
+            id: f.id,
+            code: 'not_found',
+            message: '配对码不存在或已过期，请在电脑上重新生成',
+          })
+        return send(ws, { t: 'pair.found', id: f.id, offer })
       }
       default:
         return send(ws, { t: 'error', code: 'bad_frame', message: 'unknown frame' })

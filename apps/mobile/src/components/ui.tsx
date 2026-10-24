@@ -74,6 +74,7 @@ export function Header({
   backTo?: string
   right?: ReactNode
 }) {
+  // Top-level screens get the AnyDot mark instead of a back button: it leads to the website.
   return (
     <header className="safe-top sticky top-0 z-20 border-b border-line bg-canvas/90 backdrop-blur">
       <div className="flex h-12 items-center gap-1 px-2">
@@ -87,7 +88,13 @@ export function Header({
             <ChevronLeft className="size-6" />
           </button>
         ) : (
-          <div className="w-2" />
+          <a
+            href={HOME_URL}
+            aria-label="AnyDot 首页"
+            className="flex size-10 items-center justify-center rounded-full active:bg-muted"
+          >
+            <LogoMark className="size-6" />
+          </a>
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[16px] font-semibold">{title}</div>
@@ -96,6 +103,24 @@ export function Header({
         {right}
       </div>
     </header>
+  )
+}
+
+const HOME_URL = 'https://anydot.app/'
+
+export function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="40 26 116 128" className={className} aria-hidden="true">
+      <path
+        d="M84 42 L90 42 C121 42 140 64 140 90 C140 116 121 138 90 138 L62 138 Q56 138 56 132 L56 64"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="17"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="98" cy="90" r="16" className="fill-accent" />
+    </svg>
   )
 }
 

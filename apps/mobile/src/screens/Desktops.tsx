@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { ChevronRight, Monitor, QrCode } from 'lucide-react'
+import { ChevronRight, Monitor, Plus, QrCode } from 'lucide-react'
 import { useEffect } from 'react'
-import { Empty, Header } from '../components/ui'
+import { Button, Empty, Header } from '../components/ui'
 import { go } from '../lib/router'
 import { useApp } from '../store/app'
 
@@ -14,13 +14,34 @@ export function DesktopsScreen() {
 
   return (
     <div>
-      <Header title="我的电脑" />
+      <Header
+        title="我的电脑"
+        right={
+          desktops.length > 0 && (
+            <button
+              type="button"
+              onClick={() => go('/add')}
+              className="flex h-9 items-center gap-1 rounded-full px-3 text-sm text-accent active:bg-muted"
+            >
+              <Plus className="size-4" />
+              添加电脑
+            </button>
+          )
+        }
+      />
       {desktops.length === 0 ? (
-        <Empty icon={<QrCode className="size-7" />} title="还没有配对电脑">
-          在电脑上打开 AnyDot → 设置 → 手机连接 → 绑定手机，
-          <br />
-          然后用手机相机扫描二维码。
-        </Empty>
+        <>
+          <Empty icon={<QrCode className="size-7" />} title="还没有配对电脑">
+            在电脑上打开 AnyDot → 设置 → 手机连接 → 绑定手机，
+            <br />
+            用手机相机扫描二维码，或者输入配对码。
+          </Empty>
+          <div className="px-6">
+            <Button variant="primary" className="w-full" onClick={() => go('/add')}>
+              输入配对码
+            </Button>
+          </div>
+        </>
       ) : (
         <div className="space-y-3 p-4">
           {desktops.map((d) => {
