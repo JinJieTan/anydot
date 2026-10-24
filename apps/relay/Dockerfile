@@ -13,6 +13,8 @@ WORKDIR /app
 ENV NODE_ENV=production PORT=8090 HOST=0.0.0.0 DATA_DIR=/data MOBILE_DIR=/app/mobile
 COPY --from=build /src/apps/relay/dist/server.mjs ./server.mjs
 COPY --from=build /src/apps/mobile/dist ./mobile
+# A new named volume copies this ownership, so the node user can write it.
+RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 EXPOSE 8090
 USER node
