@@ -54,6 +54,7 @@ describe('backups before migration', () => {
     return path
   }
 
+  // Several real SQLite files on disk: slow on Windows CI runners.
   it('copies an outdated database before migrating it, keeping the newest three', () => {
     const dir = mkdtempSync(join(tmpdir(), 'aitech-db-'))
     try {
@@ -84,7 +85,7 @@ describe('backups before migration', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('makes no backup of a new or in-memory database', () => {
     const dir = mkdtempSync(join(tmpdir(), 'aitech-db-'))
