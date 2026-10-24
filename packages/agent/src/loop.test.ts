@@ -144,6 +144,32 @@ describe('runAgent', () => {
     })
   })
 
+  it('reads the mode afresh, so a switch applies to the pending approval', async () => {
+    let mode: 'ask' | 'auto' = 'ask'
+    let recheckBefore: boolean | undefined
+    let recheckAfter: boolean | undefined
+    const res = await runAgent({
+      model: {
+        provider: { baseUrl: server.url, apiKey: 'sk-test', type: 'auto' },
+        modelId: 'gpt-5',
+      },
+      messages: [{ role: 'user', content: 'fix it' }],
+      tools: ALL_TOOLS,
+      ctx: ctx(),
+      mode: () => mode,
+      onEvent: () => {},
+      approve: async (_req, recheck) => {
+        recheckBefore = recheck?.()
+        mode = 'auto'
+        recheckAfter = recheck?.()
+        return 'allow'
+      },
+    })
+    expect(res.status).toBe('done')
+    expect(recheckBefore).toBe(false)
+    expect(recheckAfter).toBe(true)
+  })
+
   it('surfaces model errors', async () => {
     const res = await runAgent({
       model: { provider: { baseUrl: server.url, apiKey: 'bad', type: 'auto' }, modelId: 'gpt-5' },

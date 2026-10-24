@@ -68,14 +68,19 @@ export interface RunAgentOptions {
   /** Empty for plain chat: a single model turn with no tools. */
   tools: AgentTool<never>[]
   ctx: ToolContext
-  mode: PermissionMode
+  /** A function reads the mode afresh for each tool call, so it can change mid-run. */
+  mode: PermissionMode | (() => PermissionMode)
   /** Session-scoped "always allow" keys; mutated when the user picks allow-always. */
   allowed?: Set<string>
   maxSteps?: number
   /** Summarise the history once a step's input exceeds this many tokens. */
   compactAtTokens?: number
   onEvent: (e: AgentEvent) => void
-  approve: (req: ApprovalRequest) => Promise<ApprovalDecision>
+  /**
+   * Ask the user. `recheck` says whether the call would now run without asking
+   * (e.g. the mode changed while it waited), so the host can let it through.
+   */
+  approve: (req: ApprovalRequest, recheck?: () => boolean) => Promise<ApprovalDecision>
   /** User-configured commands run before/after tool calls and when the agent stops. */
   hooks?: Hooks
 }
@@ -382,21 +387,26 @@ async function executeCall(
     if (pre.block) return { output: `Blocked by a PreToolUse hook: ${pre.block}`, isError: true }
   }
 
-  const decision = decide(tool, input, {
-    cwd: ctx.cwd,
-    mode: opts.mode,
-    allowed,
-    sandboxed: !!ctx.sandbox,
-  })
-  if (decision.action === 'ask') {
-    const answer = await opts.approve({
-      toolCallId: call.id,
-      name: call.name,
-      input,
-      summary,
-      reason: decision.reason,
-      danger: decision.danger,
+  const decideNow = () =>
+    decide(tool, input, {
+      cwd: ctx.cwd,
+      mode: typeof opts.mode === 'function' ? opts.mode() : opts.mode,
+      allowed,
+      sandboxed: !!ctx.sandbox,
     })
+  const decision = decideNow()
+  if (decision.action === 'ask') {
+    const answer = await opts.approve(
+      {
+        toolCallId: call.id,
+        name: call.name,
+        input,
+        summary,
+        reason: decision.reason,
+        danger: decision.danger,
+      },
+      () => decideNow().action === 'allow',
+    )
     if (ctx.signal.aborted) return { output: ABORTED, isError: true }
     if (answer === 'deny') return { output: DENIED, isError: true }
     // Dangerous commands are never remembered: each one is confirmed on its own.

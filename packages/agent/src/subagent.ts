@@ -18,9 +18,9 @@ export function createSubagent(base: {
   tools: AgentTool<never>[]
   ctx: ToolContext
   /** The parent's mode: decides which reads/fetches still need approval. */
-  mode: PermissionMode
+  mode: PermissionMode | (() => PermissionMode)
   allowed: Set<string>
-  approve: (req: ApprovalRequest) => Promise<ApprovalDecision>
+  approve: (req: ApprovalRequest, recheck?: () => boolean) => Promise<ApprovalDecision>
   maxSteps?: number
 }): (prompt: string, parentCallId?: string) => Promise<ToolResult> {
   const tools = toolsForMode(base.tools, 'plan').filter((t) => !EXCLUDED.has(t.definition.name))
@@ -45,13 +45,16 @@ export function createSubagent(base: {
         }
         if (e.type === 'text') text += e.text
       },
-      approve: (req) =>
-        base.approve({
-          ...req,
-          toolCallId: parentCallId ?? req.toolCallId,
-          summary: `子任务 · ${req.summary}`,
-          reason: `${req.reason}（子任务：${req.summary}）`,
-        }),
+      approve: (req, recheck) =>
+        base.approve(
+          {
+            ...req,
+            toolCallId: parentCallId ?? req.toolCallId,
+            summary: `子任务 · ${req.summary}`,
+            reason: `${req.reason}（子任务：${req.summary}）`,
+          },
+          recheck,
+        ),
     })
     const report = text.trim()
     if (result.status === 'done' && report) return { output: report }

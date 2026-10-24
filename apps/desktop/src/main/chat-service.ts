@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { AgentEvent, ApprovalDecision, FileBackup } from '@aitech/agent'
+import type { AgentEvent, ApprovalDecision, FileBackup, PermissionMode } from '@aitech/agent'
 import { expandCommand, loadSkills, type Skill } from '@aitech/agent/skills'
 import { base64ToBytes, toModelMessages, type MessagePart, type ToolImage } from '@aitech/core'
 import {
@@ -9,6 +9,7 @@ import {
   pathToLeaf,
   type ConversationRow,
   type MessageRow,
+  type ProjectRow,
   type Store,
 } from '@aitech/db'
 import type {
@@ -29,10 +30,21 @@ const TITLE_MAX = 40
 /** Where a request came from; remote (phone) requests get stricter defaults. */
 export type Origin = 'local' | 'remote'
 
+/** The mode a run actually uses. */
+function runMode(project: ProjectRow | undefined, origin: Origin): PermissionMode {
+  if (!project) return 'ask'
+  // Tasks started from a phone never run fully unattended: commands still need a tap.
+  return origin === 'remote' && project.permissionMode === 'auto'
+    ? 'auto-edit'
+    : project.permissionMode
+}
+
 interface ActiveRun {
   handle: RunHandle | null
   aborted: boolean
   approvals: Map<string, ApprovalDTO>
+  projectId: string | null
+  origin: Origin
 }
 
 /**
@@ -157,6 +169,13 @@ export class ChatService {
     run.approvals.delete(toolCallId)
     run.handle?.approve(toolCallId, decision, answers)
     this.emit({ type: 'approval-resolved', conversationId, toolCallId })
+  }
+
+  /** Apply a project's new permission mode to its runs in progress. */
+  projectModeChanged(projectId: string): void {
+    const project = this.store.getProject(projectId)
+    for (const run of this.runs.values())
+      if (run.projectId === projectId) run.handle?.setMode(runMode(project, run.origin))
   }
 
   switchBranch(conversationId: string, messageId: string): ConversationRow {
@@ -360,7 +379,13 @@ export class ChatService {
     const creds = this.credentials(conv.modelId!)
     const project = conv.projectId ? this.store.getProject(conv.projectId) : undefined
 
-    const run: ActiveRun = { handle: null, aborted: false, approvals: new Map() }
+    const run: ActiveRun = {
+      handle: null,
+      aborted: false,
+      approvals: new Map(),
+      projectId: project?.id ?? null,
+      origin,
+    }
     this.runs.set(conversationId, run)
     this.emit({ type: 'run', conversationId, running: true })
 
@@ -436,12 +461,7 @@ export class ChatService {
             conversationId,
             cwd,
             workspace: !project,
-            // Tasks started from a phone never run fully unattended: commands still need a tap.
-            mode: !project
-              ? 'ask'
-              : origin === 'remote' && project.permissionMode === 'auto'
-                ? 'auto-edit'
-                : project.permissionMode,
+            mode: runMode(project, origin),
             projectName: project?.name ?? '',
             projectInstructions: project?.instructions ?? null,
             userSystemPrompt: conv.systemPrompt,
@@ -558,6 +578,10 @@ export class ChatService {
             const approval: ApprovalDTO = { ...request, conversationId }
             run.approvals.set(request.toolCallId, approval)
             this.emit({ type: 'approval', approval })
+          },
+          onApprovalResolved: (toolCallId) => {
+            if (run.approvals.delete(toolCallId))
+              this.emit({ type: 'approval-resolved', conversationId, toolCallId })
           },
           onEnd: (res) =>
             inOrder(() => {

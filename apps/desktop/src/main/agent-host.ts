@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { utilityProcess, type UtilityProcess } from 'electron'
-import type { AgentEvent, ApprovalDecision, ApprovalRequest } from '@aitech/agent'
+import type { AgentEvent, ApprovalDecision, ApprovalRequest, PermissionMode } from '@aitech/agent'
 import { newId } from '@aitech/core'
 import type { AgentRequest, AgentResponse, AgentRunRequest } from '../shared/ipc'
 
@@ -9,12 +9,15 @@ export type RunEnd = Extract<AgentResponse, { type: 'run.end' }>
 export interface RunHandlers {
   onEvent: (event: AgentEvent) => void
   onApproval: (request: ApprovalRequest) => void
+  /** The agent let a pending approval through on its own. */
+  onApprovalResolved: (toolCallId: string) => void
   onEnd: (end: RunEnd) => void
 }
 
 export interface RunHandle {
   runId: string
   abort: () => void
+  setMode: (mode: PermissionMode) => void
   approve: (
     toolCallId: string,
     decision: ApprovalDecision,
@@ -102,6 +105,9 @@ export class AgentHost {
       case 'run.approval':
         this.runs.get(res.runId)?.onApproval(res.request)
         break
+      case 'run.approval-resolved':
+        this.runs.get(res.runId)?.onApprovalResolved(res.toolCallId)
+        break
       case 'run.end':
         this.runs.get(res.runId)?.onEnd(res)
         this.runs.delete(res.runId)
@@ -160,6 +166,9 @@ export class AgentHost {
       runId,
       abort: () => {
         if (this.runs.has(runId)) this.post({ type: 'run.abort', runId })
+      },
+      setMode: (mode) => {
+        if (this.runs.has(runId)) this.post({ type: 'run.mode', runId, mode })
       },
       approve: (toolCallId, decision, answers) => {
         if (this.runs.has(runId))

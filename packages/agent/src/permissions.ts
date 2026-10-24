@@ -138,6 +138,11 @@ export function decide(
     }
   }
 
+  // The mode can switch to plan mid-run, after the full toolset was offered.
+  if (ctx.mode === 'plan' && !PLAN_KINDS.includes(tool.kind)) {
+    return { action: 'ask', reason: '当前是只读规划模式', danger: false }
+  }
+
   if (tool.kind === 'exec') {
     const command = String(input.command ?? '')
     const danger = dangerOf(command)

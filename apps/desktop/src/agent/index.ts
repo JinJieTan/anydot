@@ -31,6 +31,7 @@ import {
   toolsForMode,
   type ApprovalDecision,
   type ApprovalRequest,
+  type PermissionMode,
   type Skill,
   type ToolContext,
 } from '@aitech/agent'
@@ -49,6 +50,10 @@ const shellEnv = resolveShellEnv()
 interface Run {
   controller: AbortController
   approvals: Map<string, (d: ApprovalDecision, answers?: Record<string, string>) => void>
+  /** Read on every tool call, so switching mode applies to the run in progress. */
+  mode: PermissionMode
+  /** Pending approvals that would now run without asking, given the current mode. */
+  rechecks: Map<string, () => boolean>
 }
 
 const runs = new Map<string, Run>()
@@ -113,7 +118,12 @@ async function buildComputerTool(model: ModelRef) {
 }
 
 async function start(runId: string, req: AgentRunRequest) {
-  const run: Run = { controller: new AbortController(), approvals: new Map() }
+  const run: Run = {
+    controller: new AbortController(),
+    approvals: new Map(),
+    mode: req.agent?.mode ?? 'ask',
+    rechecks: new Map(),
+  }
   runs.set(runId, run)
   const allowed = new Set(req.agent?.allowed ?? [])
 
@@ -196,10 +206,14 @@ async function start(runId: string, req: AgentRunRequest) {
     }
 
     const model = { provider: req.provider, modelId: req.modelId, protocol: req.protocol }
-    const mode = req.agent?.mode ?? 'ask'
-    const approve = (request: ApprovalRequest) =>
+    const mode = () => run.mode
+    const approve = (request: ApprovalRequest, recheck?: () => boolean) =>
       new Promise<ApprovalDecision>((resolve) => {
-        run.approvals.set(request.toolCallId, resolve)
+        run.approvals.set(request.toolCallId, (d) => {
+          run.rechecks.delete(request.toolCallId)
+          resolve(d)
+        })
+        if (recheck) run.rechecks.set(request.toolCallId, recheck)
         send({ type: 'run.approval', runId, request })
       })
     const ctx: ToolContext = {
@@ -327,6 +341,20 @@ process.parentPort.on('message', (event) => {
       // Unblock any pending approval so the loop can observe the abort.
       for (const resolve of run.approvals.values()) resolve('deny')
       run.approvals.clear()
+      break
+    }
+    case 'run.mode': {
+      const run = runs.get(msg.runId)
+      if (!run) break
+      run.mode = msg.mode
+      // Let through what the new mode would no longer ask about.
+      for (const [toolCallId, recheck] of run.rechecks) {
+        const resolve = run.approvals.get(toolCallId)
+        if (!resolve || !recheck()) continue
+        run.approvals.delete(toolCallId)
+        resolve('allow')
+        send({ type: 'run.approval-resolved', runId: msg.runId, toolCallId })
+      }
       break
     }
     case 'run.approve': {

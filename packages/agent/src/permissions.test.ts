@@ -44,6 +44,11 @@ describe('decide', () => {
     })
   })
 
+  it('plan mode asks before anything beyond reading', () => {
+    expect(decide(T(readFileTool), { path: 'src/a.ts' }, ctx('plan'))).toEqual({ action: 'allow' })
+    expect(decide(T(editFileTool), { path: 'a.ts' }, ctx('plan'))).toMatchObject({ action: 'ask' })
+  })
+
   it('edits ask only in ask mode', () => {
     expect(decide(T(editFileTool), { path: 'a.ts' }, ctx('ask'))).toMatchObject({ action: 'ask' })
     expect(decide(T(editFileTool), { path: 'a.ts' }, ctx('auto-edit'))).toEqual({ action: 'allow' })
