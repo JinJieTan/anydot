@@ -12,7 +12,7 @@
 
 ## 安装
 
-到 [Releases](https://github.com/JinJieTan/aitech/releases) 下载对应系统的安装包：
+到 [Releases](https://github.com/JinJieTan/anydot/releases) 下载对应系统的安装包：
 
 | 系统                            | 文件                                    |
 | ------------------------------- | --------------------------------------- |

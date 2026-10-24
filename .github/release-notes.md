@@ -7,4 +7,4 @@
 | Windows（绝大多数电脑）         | `AnyDot-*-windows-x64-setup.exe`   |
 | Windows（ARM 设备）             | `AnyDot-*-windows-arm64-setup.exe` |
 
-安装包没有使用付费证书签名，第一次打开需要多点一步，见 [安装说明](https://github.com/JinJieTan/aitech#安装)。
+安装包没有使用付费证书签名，第一次打开需要多点一步，见 [安装说明](https://github.com/JinJieTan/anydot#安装)。
