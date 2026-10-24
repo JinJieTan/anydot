@@ -11,6 +11,8 @@ export default defineConfig({
     build: {
       externalizeDeps: workspace,
       rollupOptions: {
+        // ws's optional native addons: left unresolved, ws catches the failed require and uses JS.
+        external: ['bufferutil', 'utf-8-validate'],
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           agent: resolve(__dirname, 'src/agent/index.ts'),
