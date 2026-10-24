@@ -40,6 +40,9 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
   .msg { margin-top:12px; color:var(--warn); }
   .stat { font-size:24px; font-weight:600; }
   .stats { display:flex; gap:32px; }
+  .feedback > div { padding:12px 0; border-top:1px solid var(--line); }
+  .feedback > div:first-child { border-top:0; }
+  .feedback p { margin:0 0 6px; white-space:pre-wrap; word-break:break-word; }
   .hidden { display:none; }
 </style>
 </head>
@@ -77,6 +80,12 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
         <div><div class="stat" id="desktops">0</div><div class="soft">电脑</div></div>
         <div><div class="stat" id="mobiles">0</div><div class="soft">手机</div></div>
       </div>
+    </section>
+
+    <section>
+      <div class="row"><h2 style="margin:0">用户反馈</h2><span class="grow"></span><span class="soft" id="feedbackCount"></span></div>
+      <p class="soft">桌面端左下角“反馈”按钮提交的内容，最近的在最上面。</p>
+      <div class="feedback" id="feedback"></div>
     </section>
 
     <section>
@@ -185,6 +194,7 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     sessionStorage.setItem('adminSession', sid)
     show('app')
     render(r.state)
+    loadFeedback()
   }
 
   function render(s) {
@@ -228,7 +238,27 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     $('accountForm').username.value = s.username
   }
 
-  function load() { return call('GET', '/state').then(function (s) { show('app'); render(s) }) }
+  function renderFeedback(r) {
+    $('feedbackCount').textContent = r.items.length ? r.items.length + ' 条' : ''
+    var rows = r.items.map(function (f) {
+      var del = el('button', { className: 'danger', textContent: '删除' })
+      del.onclick = function () {
+        if (!confirm('删除这条反馈？')) return
+        call('DELETE', '/feedback/' + encodeURIComponent(f.id)).then(renderFeedback).catch(fail)
+      }
+      var meta = [fmt(f.createdAt), f.version && ('v' + f.version), f.platform, f.contact && ('联系方式：' + f.contact)]
+        .filter(Boolean).join(' · ')
+      return el('div', {}, [
+        el('p', { textContent: f.message }),
+        el('div', { className: 'row' }, [el('span', { className: 'soft grow', textContent: meta }), del]),
+      ])
+    })
+    if (!rows.length) rows.push(el('div', { className: 'soft', textContent: '还没有反馈' }))
+    $('feedback').replaceChildren.apply($('feedback'), rows)
+  }
+  function loadFeedback() { return call('GET', '/feedback').then(renderFeedback).catch(fail) }
+
+  function load() { return call('GET', '/state').then(function (s) { show('app'); render(s); loadFeedback() }) }
 
   $('setupForm').onsubmit = function (e) {
     e.preventDefault()

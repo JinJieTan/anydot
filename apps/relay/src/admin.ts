@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AuthMode } from '@aitech/protocol'
 import { ENV_TOKEN_ID, type AccessStore, type Limits } from './access'
 import { ADMIN_PAGE } from './admin-page'
+import type { FeedbackStore } from './feedback'
 
 export interface AdminStats {
   desktops: number
@@ -43,6 +44,7 @@ const SETUP_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
  */
 export function createAdmin(deps: {
   access: AccessStore
+  feedback: FeedbackStore
   stats: () => AdminStats
   /** Disconnect clients that are no longer admitted. */
   enforce: () => void
@@ -232,6 +234,13 @@ export function createAdmin(deps: {
       return json(200, state())
     }
 
+    if (route === 'GET /feedback') return json(200, { items: deps.feedback.list() })
+    const delFeedback = /^DELETE \/feedback\/([\w-]+)$/.exec(route)
+    if (delFeedback) {
+      if (!deps.feedback.remove(delFeedback[1]!)) return json(404, { error: '反馈不存在' })
+      return json(200, { items: deps.feedback.list() })
+    }
+
     if (route === 'POST /tokens') {
       const { token, entry } = access.create(str('name'))
       return json(200, { token, id: entry.id, state: state() })
@@ -256,7 +265,7 @@ function validateAccount(username: string, password: string): string | null {
   return null
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+export async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (req.method === 'GET' || req.method === 'DELETE') return {}
   let size = 0
   const chunks: Buffer[] = []

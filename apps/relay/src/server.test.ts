@@ -339,4 +339,26 @@ describe('relay admin', () => {
     expect((await second.call('GET', '/state')).status).toBe(200)
     expect(await (await fetch(`${second.r.url}/info`)).json()).toMatchObject({ auth: 'open' })
   })
+  it('takes feedback from anyone and lists it only for the admin', async () => {
+    const { r, raw, call } = await adminRelay({ auth: 'token', authToken: 'env-secret' })
+    const send = (body: unknown) =>
+      fetch(`${r.url}/feedback`, { method: 'POST', body: JSON.stringify(body) })
+
+    expect((await send({ message: '  ' })).status).toBe(400)
+    // Token mode only guards connections: feedback stays open.
+    expect(
+      (await send({ message: '导出失败', contact: 'a@b.c', version: '0.2.0', platform: 'darwin' }))
+        .status,
+    ).toBe(200)
+    expect((await raw('GET', '/feedback')).status).toBe(401)
+
+    const { items } = (await (await call('GET', '/feedback')).json()) as {
+      items: { id: string; message: string; contact: string }[]
+    }
+    expect(items).toMatchObject([{ message: '导出失败', contact: 'a@b.c' }])
+    expect(await (await call('DELETE', `/feedback/${items[0]!.id}`)).json()).toEqual({ items: [] })
+
+    for (let i = 0; i < 4; i++) await send({ message: `m${i}` })
+    expect((await send({ message: 'one too many' })).status).toBe(429)
+  })
 })
