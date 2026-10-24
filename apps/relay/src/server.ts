@@ -16,8 +16,7 @@ import {
 } from '@aitech/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { AccessStore } from './access'
-import { createAdmin, readJson } from './admin'
-import { FeedbackStore } from './feedback'
+import { createAdmin } from './admin'
 import { admit, stillAdmitted, type Admission } from './auth'
 import type { RelayConfig } from './config'
 import { PushService } from './push'
@@ -79,12 +78,9 @@ export async function startRelay(
     limits: { maxConnectionsPerIp: config.maxConnectionsPerIp, messageRate: config.messageRate },
   })
 
-  const feedback = new FeedbackStore(config.dataDir)
-
   const loggedIn = () => [...devices.values()].flatMap((set) => [...set])
   const admin = createAdmin({
     access,
-    feedback,
     log,
     stats: () => {
       const conns = loggedIn()
@@ -137,20 +133,6 @@ export async function startRelay(
       return
     }
     if (await admin(req, res, url, clientIp(req))) return
-    if (url.pathname === '/feedback' && req.method === 'POST') {
-      let body: Record<string, unknown>
-      try {
-        body = await readJson(req)
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: '请求格式错误' }))
-        return
-      }
-      const r = feedback.add(body, clientIp(req))
-      res.writeHead('error' in r ? r.status : 200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify('error' in r ? { error: r.error } : { id: r.entry.id }))
-      return
-    }
     if (url.pathname === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok')
       return
