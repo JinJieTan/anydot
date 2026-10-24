@@ -14,7 +14,15 @@ import {
   type MobileSettings,
   type PairedDesktop,
 } from '../lib/storage'
-import type { RApproval, RChatEvent, RConversation, RMessage, RSync } from '../lib/types'
+import type {
+  RApproval,
+  RChatEvent,
+  RConversation,
+  RMessage,
+  RProject,
+  RSync,
+  RThinking,
+} from '../lib/types'
 
 export interface DesktopState {
   online: boolean | null
@@ -51,6 +59,12 @@ interface AppState {
   removeDesktop: (id: string) => Promise<void>
   refresh: (desktopId: string) => Promise<void>
   loadConversation: (desktopId: string, conversationId: string) => Promise<void>
+  updateConversation: (
+    desktopId: string,
+    id: string,
+    patch: { modelId?: string; thinking?: RThinking },
+  ) => Promise<void>
+  setProjectMode: (desktopId: string, projectId: string, mode: string) => Promise<void>
   saveChat: (chat: LocalChat) => Promise<void>
   deleteChat: (id: string) => Promise<void>
   notify: (text: string, error?: boolean) => void
@@ -227,6 +241,40 @@ export const useApp = create<AppState>((set, get) => ({
       ...d,
       conversations: { ...d.conversations, [conversationId]: detail },
     }))
+  },
+
+  updateConversation: async (desktopId, id, patch) => {
+    const { hub, desktops } = get()
+    const desktop = desktops.find((d) => d.deviceId === desktopId)
+    if (!hub || !desktop) return
+    const conversation = await hub.rpc<RConversation>(desktop, 'conversation.update', {
+      id,
+      ...patch,
+    })
+    patchDesktop(desktopId, (d) => {
+      const cur = d.conversations[id]
+      return cur
+        ? { ...d, conversations: { ...d.conversations, [id]: { ...cur, conversation } } }
+        : d
+    })
+  },
+
+  setProjectMode: async (desktopId, projectId, mode) => {
+    const { hub, desktops } = get()
+    const desktop = desktops.find((d) => d.deviceId === desktopId)
+    if (!hub || !desktop) return
+    const project = await hub.rpc<RProject>(desktop, 'project.setMode', { projectId, mode })
+    patchDesktop(desktopId, (d) =>
+      d.sync
+        ? {
+            ...d,
+            sync: {
+              ...d.sync,
+              projects: d.sync.projects.map((p) => (p.id === project.id ? project : p)),
+            },
+          }
+        : d,
+    )
   },
 
   saveChat: async (chat) => {

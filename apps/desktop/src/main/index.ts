@@ -284,6 +284,8 @@ if (!app.requestSingleInstanceLock()) {
       blobs,
       (status) => emit('remote', status),
       (req) => emit('remote-pair', req),
+      () => loadSettings(s),
+      (scope) => emit('invalidate', { scope }),
     )
     scheduler = new Scheduler(
       s,

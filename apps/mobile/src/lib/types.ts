@@ -6,8 +6,18 @@ export interface RConversation {
   projectId: string | null
   title: string | null
   modelId: string | null
+  thinking?: RThinking
   activeLeafId: string | null
   updatedAt: number
+}
+
+export type RThinking = 'off' | 'low' | 'medium' | 'high'
+
+export interface RModel {
+  id: string
+  modelId: string
+  displayName: string | null
+  capabilities: string[]
 }
 
 export interface RMessage {
@@ -49,6 +59,9 @@ export interface RSync {
   desktop: { name: string; platform: string }
   projects: RProject[]
   conversations: RConversation[]
+  models?: RModel[]
+  /** Permission modes the phone may set; older desktops don't send it. */
+  remoteModes?: string[]
   running: string[]
   approvals: RApproval[]
 }

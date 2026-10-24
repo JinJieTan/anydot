@@ -14,7 +14,14 @@ import type { MessagePart } from '@aitech/core'
 import { Composer, type ImageDraft } from '../components/Composer'
 import { Markdown } from '../components/Markdown'
 import { Button, Header, Spinner } from '../components/ui'
-import { activePath, type RApproval, type RMessage } from '../lib/types'
+import {
+  activePath,
+  type RApproval,
+  type RMessage,
+  type RModel,
+  type RProject,
+  type RThinking,
+} from '../lib/types'
 import { attempt, useApp } from '../store/app'
 
 const s = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v ?? ''))
@@ -165,12 +172,142 @@ export function RemoteConversationScreen({
           placeholder={project ? '描述任务…' : '输入消息…'}
           running={running}
           disabled={!detail}
+          toolbar={
+            detail && (
+              <RunOptions
+                desktopId={desktopId}
+                conversationId={conversationId}
+                modelId={detail.conversation.modelId}
+                thinking={detail.conversation.thinking ?? 'off'}
+                models={st?.sync?.models ?? []}
+                project={project}
+                remoteModes={st?.sync?.remoteModes}
+              />
+            )
+          }
           onSend={send}
           onStop={() =>
             hub && void attempt(() => hub.rpc(desktop, 'chat.stop', { conversationId }))
           }
         />
       </div>
+    </div>
+  )
+}
+
+const THINKING: { value: RThinking; label: string }[] = [
+  { value: 'off', label: '关闭' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+]
+
+const MODES: { value: string; label: string }[] = [
+  { value: 'ask', label: '每次询问' },
+  { value: 'auto-edit', label: '自动改文件' },
+  { value: 'auto', label: '全自动' },
+  { value: 'plan', label: '只读规划' },
+]
+
+/** A chip that opens the phone's native picker. */
+function Chip({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: { value: string; label: string; disabled?: boolean }[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="relative flex h-8 max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-3 text-[13px] text-fg-soft">
+      <span className="truncate">{label}</span>
+      <ChevronDown className="size-3.5 shrink-0" />
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 opacity-0"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} disabled={o.disabled}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+/** Model, thinking level and (for projects) permission mode of this conversation. */
+function RunOptions({
+  desktopId,
+  conversationId,
+  modelId,
+  thinking,
+  models,
+  project,
+  remoteModes,
+}: {
+  desktopId: string
+  conversationId: string
+  modelId: string | null
+  thinking: RThinking
+  models: RModel[]
+  project?: RProject
+  remoteModes?: string[]
+}) {
+  const { updateConversation, setProjectMode } = useApp()
+  const chat = models.filter((m) => m.capabilities.includes('chat'))
+  const model = chat.find((m) => m.id === modelId) ?? chat[0]
+  const name = (m: RModel) => m.displayName || m.modelId
+  // Older desktops don't support changing these from the phone.
+  const canEdit = !!remoteModes
+  if (!canEdit && !model) return null
+
+  return (
+    <div className="mb-2 flex gap-2 overflow-x-auto">
+      {model && (
+        <Chip
+          label={name(model)}
+          value={model.id}
+          options={chat.map((m) => ({ value: m.id, label: name(m), disabled: !canEdit }))}
+          onChange={(id) =>
+            void attempt(() => updateConversation(desktopId, conversationId, { modelId: id }))
+          }
+        />
+      )}
+      {model?.capabilities.includes('reasoning') && (
+        <Chip
+          label={
+            thinking === 'off'
+              ? '思考'
+              : `思考·${THINKING.find((t) => t.value === thinking)?.label}`
+          }
+          value={thinking}
+          options={THINKING.map((t) => ({ ...t, disabled: !canEdit }))}
+          onChange={(t) =>
+            void attempt(() =>
+              updateConversation(desktopId, conversationId, { thinking: t as RThinking }),
+            )
+          }
+        />
+      )}
+      {project && (
+        <Chip
+          label={
+            MODES.find((m) => m.value === project.permissionMode)?.label ?? project.permissionMode
+          }
+          value={project.permissionMode}
+          options={MODES.map((m) => ({
+            value: m.value,
+            label: remoteModes?.includes(m.value) ? m.label : `${m.label}（仅限电脑上设置）`,
+            disabled: !remoteModes?.includes(m.value),
+          }))}
+          onChange={(mode) => void attempt(() => setProjectMode(desktopId, project.id, mode))}
+        />
+      )}
     </div>
   )
 }

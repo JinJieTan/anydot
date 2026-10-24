@@ -1,5 +1,5 @@
 import { ArrowUp, ImagePlus, Square, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 export interface ImageDraft {
   name: string
@@ -32,6 +32,7 @@ export function Composer({
   running,
   disabled,
   allowImages = true,
+  toolbar,
   onSend,
   onStop,
 }: {
@@ -39,6 +40,8 @@ export function Composer({
   running: boolean
   disabled?: boolean
   allowImages?: boolean
+  /** Shown above the input, e.g. model and permission pickers. */
+  toolbar?: ReactNode
   onSend: (text: string, images: ImageDraft[]) => Promise<boolean>
   onStop?: () => void
 }) {
@@ -70,6 +73,7 @@ export function Composer({
 
   return (
     <div className="safe-bottom border-t border-line bg-canvas px-3 pt-2">
+      {toolbar}
       {images.length > 0 && (
         <div className="mb-2 flex gap-2 overflow-x-auto">
           {images.map((img, i) => (

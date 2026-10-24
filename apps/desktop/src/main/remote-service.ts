@@ -1,6 +1,6 @@
 import { hostname } from 'node:os'
 import { base64ToBytes, bytesToBase64, newId, normalizeBaseUrl } from '@aitech/core'
-import type { Store } from '@aitech/db'
+import type { PermissionMode, Store } from '@aitech/db'
 import {
   b64url,
   createIdentity,
@@ -22,6 +22,7 @@ import {
   type PairRequestDTO,
   type RemoteState,
   type RemoteStatusDTO,
+  type Settings,
 } from '../shared/ipc'
 import type { BlobStore } from './blobs'
 import type { ChatService } from './chat-service'
@@ -31,6 +32,9 @@ const PAIRING_TTL = 2 * 60_000
 const ACTIVE_WINDOW = 3 * 60_000
 const DELTA_FLUSH_MS = 120
 const MAX_BLOB_BYTES = 8 * 1024 * 1024
+const THINKING_LEVELS = ['off', 'low', 'medium', 'high'] as const
+/** Modes a phone may pick; 全自动 can only be turned on at the desktop. */
+const REMOTE_MODES: PermissionMode[] = ['ask', 'auto-edit', 'plan']
 
 interface RemoteSettings {
   enabled: boolean
@@ -83,6 +87,9 @@ export class RemoteService {
     private readonly blobs: BlobStore,
     private readonly emitStatus: (s: RemoteStatusDTO) => void,
     private readonly emitPairRequest: (r: PairRequestDTO) => void,
+    private readonly appSettings: () => Pick<Settings, 'defaultModelId' | 'defaultThinking'>,
+    /** Tell the desktop UI that the phone changed something. */
+    private readonly invalidate: (scope: 'conversations' | 'projects') => void,
   ) {
     this.identity = this.loadIdentity()
   }
@@ -436,6 +443,7 @@ export class RemoteService {
       case 'sync':
         return {
           desktop: { name: this.deviceName, platform: process.platform },
+          remoteModes: REMOTE_MODES,
           projects: this.store
             .listProjects()
             .map((x) => ({ id: x.id, name: x.name, permissionMode: x.permissionMode })),
@@ -454,10 +462,43 @@ export class RemoteService {
         const projectId = typeof p.projectId === 'string' ? p.projectId : null
         const project = projectId ? this.store.getProject(projectId) : undefined
         if (projectId && !project) throw new Error('项目不存在')
+        const defaults = this.appSettings()
         return this.store.createConversation({
           projectId: project?.id ?? null,
-          modelId: project?.defaultModelId ?? null,
+          modelId: project?.defaultModelId ?? defaults.defaultModelId,
+          thinking: defaults.defaultThinking,
         })
+      }
+      case 'conversation.update': {
+        const id = str('id')
+        if (!this.store.getConversation(id)) throw new Error('对话不存在')
+        const patch: { modelId?: string; thinking?: (typeof THINKING_LEVELS)[number] } = {}
+        if (p.modelId !== undefined) {
+          const modelId = str('modelId')
+          const ok = this.store
+            .listAvailableModels()
+            .some((m) => m.id === modelId && m.capabilities.includes('chat'))
+          if (!ok) throw new Error('模型不可用')
+          patch.modelId = modelId
+        }
+        if (p.thinking !== undefined) {
+          const t = THINKING_LEVELS.find((l) => l === p.thinking)
+          if (!t) throw new Error('无效的思考强度')
+          patch.thinking = t
+        }
+        const conversation = this.store.updateConversation(id, patch)
+        this.invalidate('conversations')
+        return conversation
+      }
+      case 'project.setMode': {
+        const projectId = str('projectId')
+        const mode = REMOTE_MODES.find((m) => m === p.mode)
+        if (!mode) throw new Error('手机上不能设置这个权限模式，请在电脑上修改')
+        if (!this.store.getProject(projectId)) throw new Error('项目不存在')
+        const project = this.store.updateProject(projectId, { permissionMode: mode })
+        this.chat.projectModeChanged(projectId)
+        this.invalidate('projects')
+        return { id: project.id, name: project.name, permissionMode: project.permissionMode }
       }
       case 'chat.send': {
         const conversationId = str('conversationId')
