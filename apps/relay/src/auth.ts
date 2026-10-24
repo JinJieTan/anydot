@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { AuthMode, ClientAuth } from '@aitech/protocol'
 import type { AccessStore } from './access'
-import type { RelayConfig } from './config'
 
 /** "https://Host/v1/" → "https://host/v1" for allow-list comparison. */
 export function normalizeUpstream(url: string): string {
@@ -20,6 +19,8 @@ export interface Admission {
   mode: AuthMode
   /** token mode: which access token was used. */
   tokenId?: string
+  /** upstream mode: which provider vouched for it. */
+  upstream?: string
 }
 
 /**
@@ -28,7 +29,6 @@ export interface Admission {
  * decided by the devices themselves through pairing.
  */
 export async function admit(
-  config: RelayConfig,
   access: AccessStore,
   auth: ClientAuth | undefined,
   doFetch: typeof fetch = fetch,
@@ -49,12 +49,11 @@ export async function admit(
       } catch {
         return 'Base URL 无效'
       }
-      if (!config.allowedUpstreams.map(normalizeUpstream).includes(base))
-        return '该服务商不在此中继的允许列表中'
+      if (!access.upstreams.includes(base)) return '该服务商不在此中继的允许列表中'
       // Cache by hash: the relay never stores keys.
       const id = createHash('sha256').update(`${base}|${auth.apiKey}`).digest('hex')
       const hit = cache.get(id)
-      if (hit && hit.until > Date.now()) return hit.ok ? { mode } : 'API Key 无效'
+      if (hit && hit.until > Date.now()) return hit.ok ? { mode, upstream: base } : 'API Key 无效'
       let ok: boolean
       try {
         const res = await doFetch(`${base}/models`, {
@@ -67,7 +66,7 @@ export async function admit(
       }
       cache.set(id, { ok, until: Date.now() + (ok ? 10 * 60_000 : 60_000) })
       if (cache.size > 10_000) cache.clear()
-      return ok ? { mode } : 'API Key 无效'
+      return ok ? { mode, upstream: base } : 'API Key 无效'
     }
   }
 }
@@ -80,6 +79,6 @@ export function stillAdmitted(a: Admission, access: AccessStore): boolean {
     case 'token':
       return a.mode === 'token' && !!a.tokenId && access.isValid(a.tokenId)
     case 'upstream':
-      return a.mode === 'upstream'
+      return a.mode === 'upstream' && !!a.upstream && access.upstreams.includes(a.upstream)
   }
 }

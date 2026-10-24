@@ -7,22 +7,26 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 <meta name="robots" content="noindex">
 <title>AnyDot 中继管理</title>
 <style>
-  :root { --bg:#f7f4ee; --card:#fffdf9; --fg:#2a2620; --soft:#6b645a; --line:#e6dfd3; --accent:#c2562f; --warn:#a15c00; --ok:#2f7d4f; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#1b1916; --card:#24211d; --fg:#ece6dc; --soft:#a39b8f; --line:#3a352e; --accent:#e07a50; --warn:#e0a24a; --ok:#5cbf85; } }
+  :root { --bg:#f7f4ee; --card:#fffdf9; --fg:#2a2620; --soft:#6b645a; --line:#e6dfd3; --accent:#c2562f; --warn:#a15c00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1916; --card:#24211d; --fg:#ece6dc; --soft:#a39b8f; --line:#3a352e; --accent:#e07a50; --warn:#e0a24a; } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
   main { max-width:720px; margin:0 auto; padding:32px 16px 64px; }
   h1 { font-size:20px; margin:0 0 4px; }
   h2 { font-size:15px; margin:0 0 12px; }
-  p.soft, .soft { color:var(--soft); }
+  .soft { color:var(--soft); }
   section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-top:20px; }
-  button, input { font:inherit; }
-  input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+  button, input, textarea { font:inherit; }
+  input, textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+  textarea { min-height:84px; font-family:ui-monospace, Menlo, monospace; font-size:13px; }
+  label.field { display:block; margin-bottom:10px; }
+  label.field > span { display:block; margin-bottom:4px; color:var(--soft); }
   button { padding:7px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; white-space:nowrap; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
   button.danger { color:#c0392b; }
-  button:disabled { opacity:.5; cursor:default; }
   .row { display:flex; gap:8px; align-items:center; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:520px) { .grid2 { grid-template-columns:1fr; } }
   .modes { display:grid; gap:10px; }
   .mode { display:flex; gap:12px; align-items:flex-start; padding:12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
   .mode.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
@@ -30,7 +34,7 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
   .mode b { display:block; }
   .tokens > div { display:flex; gap:12px; align-items:center; padding:10px 0; border-top:1px solid var(--line); }
   .tokens > div:first-child { border-top:0; }
-  .tokens .grow { flex:1; min-width:0; }
+  .grow { flex:1; min-width:0; }
   code { font-family:ui-monospace, Menlo, monospace; font-size:13px; }
   .secret { margin-top:12px; padding:12px; border-radius:10px; border:1px dashed var(--accent); word-break:break-all; }
   .msg { margin-top:12px; color:var(--warn); }
@@ -42,20 +46,33 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 <body>
 <main>
   <h1>AnyDot 中继管理</h1>
-  <p class="soft">管理哪些设备可以连接这个中继。内容是端到端加密的，中继看不到对话；手机能否控制电脑，仍需要在电脑上确认配对。</p>
+  <p class="soft">管理谁可以连接这个中继。内容是端到端加密的，中继看不到对话；手机能否控制某台电脑，仍需要在那台电脑上确认配对。</p>
 
-  <section id="login">
-    <h2>登录</h2>
-    <form id="loginForm" class="row">
-      <input id="adminToken" type="password" placeholder="管理令牌（服务器上的 ADMIN_TOKEN）" autocomplete="current-password">
-      <button class="primary">进入</button>
+  <section id="setup" class="hidden">
+    <h2>创建管理员账号</h2>
+    <p class="soft" style="margin-top:0">第一次使用，请设置管理员账号。设置码在中继的启动日志里（<code>docker logs anydot-relay</code>），用来确认你是服务器的主人。</p>
+    <form id="setupForm">
+      <label class="field"><span>设置码</span><input name="code" autocomplete="off" required></label>
+      <label class="field"><span>用户名</span><input name="username" autocomplete="username" required></label>
+      <label class="field"><span>密码（至少 8 位）</span><input name="password" type="password" autocomplete="new-password" required></label>
+      <label class="field"><span>确认密码</span><input name="confirm" type="password" autocomplete="new-password" required></label>
+      <button class="primary">创建并登录</button>
     </form>
-    <div id="loginMsg" class="msg"></div>
   </section>
+
+  <section id="login" class="hidden">
+    <h2>登录</h2>
+    <form id="loginForm">
+      <label class="field"><span>用户名</span><input name="username" autocomplete="username" required></label>
+      <label class="field"><span>密码</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary">登录</button>
+    </form>
+  </section>
+  <div id="authMsg" class="msg"></div>
 
   <div id="app" class="hidden">
     <section>
-      <div class="row"><h2 style="margin:0">在线设备</h2><span style="flex:1"></span><button id="refresh">刷新</button><button id="logout">退出</button></div>
+      <div class="row"><h2 style="margin:0">在线设备</h2><span class="grow"></span><span class="soft" id="who"></span><button id="refresh">刷新</button><button id="logout">退出</button></div>
       <div class="stats" style="margin-top:12px">
         <div><div class="stat" id="desktops">0</div><div class="soft">电脑</div></div>
         <div><div class="stat" id="mobiles">0</div><div class="soft">手机</div></div>
@@ -70,17 +87,51 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 
     <section>
       <h2>访问令牌</h2>
-      <p class="soft" style="margin-top:0">“仅限令牌”模式下，设备需要在 设置 → 手机连接（电脑）或 设置（手机）里填写其中一个令牌。每个人一个令牌，泄露了就单独吊销。</p>
+      <p class="soft" style="margin-top:0">“仅限令牌”模式下，设备需要在 设置 → 手机连接（电脑）或 设置（手机）里填写其中一个令牌。建议每人一个，泄露了就单独吊销。</p>
       <form id="createForm" class="row">
-        <input id="tokenName" placeholder="令牌名称，比如：我的 MacBook、小王" maxlength="60">
+        <input name="name" placeholder="令牌名称，比如：我的 MacBook、小王" maxlength="60">
         <button class="primary">新建令牌</button>
       </form>
       <div id="secret" class="secret hidden">
         <div>新令牌（只显示这一次，请马上复制）：</div>
         <code id="secretValue"></code>
-        <div class="row" style="margin-top:8px"><button id="copy">复制</button><button id="hideSecret">我已保存</button></div>
+        <div class="row" style="margin-top:8px"><button id="copy" type="button">复制</button><button id="hideSecret" type="button">我已保存</button></div>
       </div>
       <div class="tokens" id="tokens" style="margin-top:12px"></div>
+    </section>
+
+    <section>
+      <h2>允许的服务商</h2>
+      <p class="soft" style="margin-top:0">“仅限服务商用户”模式下，设备用这些服务商的有效 API Key 验证身份（中继会请求一次 <code>/v1/models</code>，不保存 Key）。每行一个 Base URL。</p>
+      <form id="upstreamForm">
+        <textarea name="upstreams" placeholder="https://api.example.com"></textarea>
+        <div class="row" style="margin-top:8px"><button class="primary">保存</button></div>
+      </form>
+    </section>
+
+    <section>
+      <h2>限流</h2>
+      <form id="limitsForm">
+        <div class="grid2">
+          <label class="field"><span>每个 IP 最多连接数</span><input name="maxConnectionsPerIp" type="number" min="1" max="10000" required></label>
+          <label class="field"><span>每个连接每秒最多消息数</span><input name="messageRate" type="number" min="1" max="10000" required></label>
+        </div>
+        <button class="primary">保存</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>管理员账号</h2>
+      <form id="accountForm">
+        <div class="grid2">
+          <label class="field"><span>用户名</span><input name="username" autocomplete="username"></label>
+          <label class="field"><span>当前密码</span><input name="current" type="password" autocomplete="current-password" required></label>
+          <label class="field"><span>新密码（至少 8 位）</span><input name="password" type="password" autocomplete="new-password" required></label>
+          <label class="field"><span>确认新密码</span><input name="confirm" type="password" autocomplete="new-password" required></label>
+        </div>
+        <button class="primary">修改</button>
+        <span class="soft">修改后其它已登录的地方会退出。</span>
+      </form>
     </section>
     <div id="msg" class="msg"></div>
   </div>
@@ -88,11 +139,11 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 <script>
 (function () {
   var api = location.pathname.replace(/\\/admin\\/?$/, '') + '/admin/api'
-  var key = sessionStorage.getItem('adminToken') || ''
+  var sid = sessionStorage.getItem('adminSession') || ''
   var MODES = {
     open: ['所有人都可以连接', '任何设备都能连上中继（有限流）。手机仍要在电脑上确认配对才能控制它。'],
     token: ['仅限令牌', '只有持有下方访问令牌的设备才能连接。'],
-    upstream: ['仅限服务商用户', '用指定服务商的有效 API Key 验证身份（ALLOWED_UPSTREAMS）。'],
+    upstream: ['仅限服务商用户', '只有持有下方服务商有效 API Key 的设备才能连接。'],
   }
   var $ = function (id) { return document.getElementById(id) }
   var fmt = function (t) { return t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '从未使用' }
@@ -102,36 +153,53 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     ;(kids || []).forEach(function (c) { e.append(c) })
     return e
   }
+  var fields = function (form) {
+    var o = {}
+    new FormData(form).forEach(function (v, k) { o[k] = v })
+    return o
+  }
 
   function call(method, path, body) {
     return fetch(api + path, {
       method: method,
-      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      headers: { Authorization: 'Bearer ' + sid, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     }).then(function (r) {
       return r.json().then(function (j) {
-        if (r.status === 401) { logout(j.error); throw new Error(j.error) }
+        if (r.status === 401 && sid) { show('login', j.error); throw new Error(j.error) }
         if (!r.ok) throw new Error(j.error || r.statusText)
         return j
       })
     })
   }
   function fail(e) { $('msg').textContent = e.message }
+  function ok(text) { $('msg').textContent = text || '' }
+
+  function show(view, message) {
+    if (view !== 'app') { sid = ''; sessionStorage.removeItem('adminSession') }
+    ;['setup', 'login', 'app'].forEach(function (v) { $(v).classList.toggle('hidden', v !== view) })
+    $('authMsg').textContent = message || ''
+  }
+  function enter(r) {
+    sid = r.session
+    sessionStorage.setItem('adminSession', sid)
+    show('app')
+    render(r.state)
+  }
 
   function render(s) {
-    $('msg').textContent = ''
+    $('who').textContent = s.username
     $('desktops').textContent = s.online.desktops
     $('mobiles').textContent = s.online.mobiles
-    $('modes').replaceChildren.apply($('modes'), s.modes.map(function (m) {
+    $('modes').replaceChildren.apply($('modes'), Object.keys(MODES).map(function (m) {
       var radio = el('input', { type: 'radio', name: 'mode', checked: s.mode === m })
-      var label = el('label', { className: 'mode' + (s.mode === m ? ' on' : '') }, [
-        radio, el('div', {}, [el('b', { textContent: MODES[m][0] }), el('span', { className: 'soft', textContent: MODES[m][1] })]),
-      ])
       radio.onchange = function () {
         if (m !== 'open' && !confirm('切换后，不符合条件的设备会立即断开，确定吗？')) return render(s)
-        call('PUT', '/mode', { mode: m }).then(render).catch(function (e) { fail(e); render(s) })
+        call('PUT', '/mode', { mode: m }).then(function (n) { ok(); render(n) }).catch(function (e) { fail(e); render(s) })
       }
-      return label
+      return el('label', { className: 'mode' + (s.mode === m ? ' on' : '') }, [
+        radio, el('div', {}, [el('b', { textContent: MODES[m][0] }), el('span', { className: 'soft', textContent: MODES[m][1] })]),
+      ])
     }))
     var rows = s.tokens.map(function (t) {
       var del = el('button', { className: 'danger', textContent: '吊销' })
@@ -154,43 +222,65 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     ])]))
     if (!rows.length) rows.push(el('div', { className: 'soft', textContent: '还没有访问令牌' }))
     $('tokens').replaceChildren.apply($('tokens'), rows)
+    $('upstreamForm').upstreams.value = s.upstreams.join('\\n')
+    $('limitsForm').maxConnectionsPerIp.value = s.limits.maxConnectionsPerIp
+    $('limitsForm').messageRate.value = s.limits.messageRate
+    $('accountForm').username.value = s.username
   }
 
-  function load() {
-    return call('GET', '/state').then(function (s) {
-      $('login').classList.add('hidden')
-      $('app').classList.remove('hidden')
-      render(s)
-    })
-  }
-  function logout(reason) {
-    key = ''
-    sessionStorage.removeItem('adminToken')
-    $('app').classList.add('hidden')
-    $('login').classList.remove('hidden')
-    $('loginMsg').textContent = reason || ''
-  }
+  function load() { return call('GET', '/state').then(function (s) { show('app'); render(s) }) }
 
+  $('setupForm').onsubmit = function (e) {
+    e.preventDefault()
+    var f = fields(e.target)
+    if (f.password !== f.confirm) return show('setup', '两次输入的密码不一致')
+    call('POST', '/setup', f).then(function (r) { e.target.reset(); enter(r) })
+      .catch(function (err) { $('authMsg').textContent = err.message })
+  }
   $('loginForm').onsubmit = function (e) {
     e.preventDefault()
-    key = $('adminToken').value.trim()
-    load().then(function () { sessionStorage.setItem('adminToken', key); $('adminToken').value = '' })
-      .catch(function (err) { $('loginMsg').textContent = err.message })
+    call('POST', '/login', fields(e.target)).then(function (r) { e.target.reset(); enter(r) })
+      .catch(function (err) { $('authMsg').textContent = err.message })
   }
   $('createForm').onsubmit = function (e) {
     e.preventDefault()
-    call('POST', '/tokens', { name: $('tokenName').value }).then(function (r) {
-      $('tokenName').value = ''
+    call('POST', '/tokens', fields(e.target)).then(function (r) {
+      e.target.reset()
       $('secretValue').textContent = r.token
       $('secret').classList.remove('hidden')
+      ok()
       render(r.state)
+    }).catch(fail)
+  }
+  $('upstreamForm').onsubmit = function (e) {
+    e.preventDefault()
+    call('PUT', '/upstreams', { upstreams: e.target.upstreams.value.split(/\\s+/) })
+      .then(function (s) { ok('已保存'); render(s) }).catch(fail)
+  }
+  $('limitsForm').onsubmit = function (e) {
+    e.preventDefault()
+    call('PUT', '/limits', fields(e.target)).then(function (s) { ok('已保存'); render(s) }).catch(fail)
+  }
+  $('accountForm').onsubmit = function (e) {
+    e.preventDefault()
+    var f = fields(e.target)
+    if (f.password !== f.confirm) return fail(new Error('两次输入的新密码不一致'))
+    call('PUT', '/account', f).then(function (r) {
+      e.target.reset()
+      enter(r)
+      ok('管理员账号已更新')
     }).catch(fail)
   }
   $('copy').onclick = function () { navigator.clipboard.writeText($('secretValue').textContent) }
   $('hideSecret').onclick = function () { $('secretValue').textContent = ''; $('secret').classList.add('hidden') }
-  $('refresh').onclick = function () { load().catch(fail) }
-  $('logout').onclick = function () { logout() }
-  if (key) load().catch(function () {})
+  $('refresh').onclick = function () { load().then(function () { ok() }).catch(fail) }
+  $('logout').onclick = function () { call('POST', '/logout').catch(function () {}).then(function () { show('login') }) }
+
+  fetch(api + '/status').then(function (r) { return r.json() }).then(function (st) {
+    if (st.setup) return show('setup')
+    if (sid) return load().catch(function () { show('login') })
+    show('login')
+  })
 })()
 </script>
 </body>

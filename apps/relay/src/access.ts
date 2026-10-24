@@ -1,7 +1,8 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AuthMode } from '@aitech/protocol'
+import { normalizeUpstream } from './auth'
 
 /** A named access token. Only its hash is kept; the token is shown once on creation. */
 export interface AccessToken {
@@ -14,9 +15,28 @@ export interface AccessToken {
   lastUsedAt: number | null
 }
 
+export interface Limits {
+  maxConnectionsPerIp: number
+  /** Messages per second per connection (burst = 2×). */
+  messageRate: number
+}
+
+interface AdminAccount {
+  username: string
+  /** scrypt, hex */
+  salt: string
+  hash: string
+}
+
+/**
+ * Settings changed from the admin page. Each one, once set, wins over the
+ * env var it replaces; unset ones fall back to the env.
+ */
 interface AccessState {
-  /** Set once the admin changes it; until then the AUTH_MODE env decides. */
+  admin?: AdminAccount
   mode?: AuthMode
+  upstreams?: string[]
+  limits?: Partial<Limits>
   tokens: AccessToken[]
 }
 
@@ -24,10 +44,11 @@ interface AccessState {
 export const ENV_TOKEN_ID = 'env'
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest()
+const scrypt = (password: string, salt: string) => scryptSync(password, salt, 32)
 
 /**
- * Who may connect to this relay: the admission mode and the access tokens,
- * kept in the data dir so the admin page can change them without a restart.
+ * Who may connect to this relay and who may manage it, kept in the data dir
+ * so the admin page can change everything without a restart.
  */
 export class AccessStore {
   private state: AccessState
@@ -36,7 +57,12 @@ export class AccessStore {
 
   constructor(
     dataDir: string,
-    private readonly defaults: { mode: AuthMode; envToken?: string },
+    private readonly defaults: {
+      mode: AuthMode
+      envToken?: string
+      upstreams: string[]
+      limits: Limits
+    },
   ) {
     mkdirSync(dataDir, { recursive: true })
     this.file = join(dataDir, 'access.json')
@@ -45,12 +71,67 @@ export class AccessStore {
       : { tokens: [] }
   }
 
+  // ── admin account ──────────────────────────────────────────
+
+  get hasAdmin(): boolean {
+    return !!this.state.admin
+  }
+
+  get adminName(): string | null {
+    return this.state.admin?.username ?? null
+  }
+
+  setAdmin(username: string, password: string) {
+    const salt = randomBytes(16).toString('hex')
+    this.state.admin = { username, salt, hash: scrypt(password, salt).toString('hex') }
+    this.save()
+  }
+
+  checkAdmin(username: string, password: string): boolean {
+    const a = this.state.admin
+    if (!a) return false
+    const ok = timingSafeEqual(scrypt(password, a.salt), Buffer.from(a.hash, 'hex'))
+    return ok && username === a.username
+  }
+
+  // ── admission ──────────────────────────────────────────────
+
   get mode(): AuthMode {
     return this.state.mode ?? this.defaults.mode
   }
 
   setMode(mode: AuthMode) {
     this.state.mode = mode
+    this.save()
+  }
+
+  /** Normalized base URLs whose API keys may use this relay in upstream mode. */
+  get upstreams(): string[] {
+    return (this.state.upstreams ?? this.defaults.upstreams).map(normalizeUpstream)
+  }
+
+  /** Throws on an invalid URL. */
+  setUpstreams(urls: string[]) {
+    const list = [
+      ...new Set(
+        urls
+          .map((u) => u.trim())
+          .filter(Boolean)
+          .map(normalizeUpstream),
+      ),
+    ]
+    for (const u of list)
+      if (!/^https?:$/.test(new URL(u).protocol)) throw new Error(`${u} 不是 http(s) 地址`)
+    this.state.upstreams = list
+    this.save()
+  }
+
+  get limits(): Limits {
+    return { ...this.defaults.limits, ...this.state.limits }
+  }
+
+  setLimits(limits: Partial<Limits>) {
+    this.state.limits = { ...this.state.limits, ...limits }
     this.save()
   }
 

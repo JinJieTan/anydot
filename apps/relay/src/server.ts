@@ -74,14 +74,14 @@ export async function startRelay(
   const access = new AccessStore(config.dataDir, {
     mode: config.auth,
     envToken: config.authToken,
+    upstreams: config.allowedUpstreams,
+    limits: { maxConnectionsPerIp: config.maxConnectionsPerIp, messageRate: config.messageRate },
   })
-  // A saved mode the current env can't serve falls back to the env's.
-  if (access.mode === 'upstream' && !config.allowedUpstreams.length) access.setMode(config.auth)
 
   const loggedIn = () => [...devices.values()].flatMap((set) => [...set])
   const admin = createAdmin({
-    config,
     access,
+    log,
     stats: () => {
       const conns = loggedIn()
       const byToken: Record<string, number> = {}
@@ -185,7 +185,7 @@ export async function startRelay(
       return
     }
     const ip = clientIp(req)
-    if ((perIp.get(ip) ?? 0) >= config.maxConnectionsPerIp) {
+    if ((perIp.get(ip) ?? 0) >= access.limits.maxConnectionsPerIp) {
       socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
       socket.destroy()
       return
@@ -216,7 +216,7 @@ export async function startRelay(
       publicKey: null,
       kind: null,
       admission: null,
-      tokens: config.messageRate * 2,
+      tokens: access.limits.messageRate * 2,
       lastRefill: Date.now(),
     }
     const nonce = randomBytes(24).toString('base64url')
@@ -239,10 +239,8 @@ export async function startRelay(
       if (isBinary) return ws.close(4400, 'text frames only')
       // Token bucket per connection.
       const now = Date.now()
-      conn.tokens = Math.min(
-        config.messageRate * 2,
-        conn.tokens + ((now - conn.lastRefill) / 1000) * config.messageRate,
-      )
+      const rate = access.limits.messageRate
+      conn.tokens = Math.min(rate * 2, conn.tokens + ((now - conn.lastRefill) / 1000) * rate)
       conn.lastRefill = now
       if (conn.tokens < 1) {
         send(ws, { t: 'error', code: 'rate_limited', message: 'too many messages' })
@@ -293,7 +291,7 @@ export async function startRelay(
         send(ws, { t: 'error', code: 'unauthorized', message: '设备签名无效' })
         return ws.close(4401, 'bad signature')
       }
-      const admission = await admit(config, access, f.auth, opts.fetch)
+      const admission = await admit(access, f.auth, opts.fetch)
       if (typeof admission === 'string') {
         send(ws, { t: 'error', code: 'unauthorized', message: admission })
         return ws.close(4403, 'not admitted')

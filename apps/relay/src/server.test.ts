@@ -19,6 +19,7 @@ afterEach(async () => {
 async function relay(
   overrides: Partial<RelayConfig> = {},
   fetchImpl?: typeof fetch,
+  log: (...a: unknown[]) => void = () => {},
 ): Promise<RelayServer> {
   const dataDir = overrides.dataDir ?? mkdtempSync(join(tmpdir(), 'relay-'))
   const r = await startRelay(
@@ -33,7 +34,7 @@ async function relay(
       messageRate: 50,
       ...overrides,
     },
-    { fetch: fetchImpl, log: () => {} },
+    { fetch: fetchImpl, log },
   )
   cleanups.push(
     () => rmSync(dataDir, { recursive: true, force: true }),
@@ -166,47 +167,98 @@ describe('relay', () => {
 })
 
 describe('relay admin', () => {
-  const ADMIN = 'admin-secret-0123456789'
-  const api = (r: RelayServer, method: string, path: string, body?: unknown, key = ADMIN) =>
-    fetch(`${r.url}/admin/api${path}`, {
-      method,
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    })
+  const USER = 'admin'
+  const PASS = 'correct horse'
 
-  it('is off without ADMIN_TOKEN and rejects a wrong admin token', async () => {
-    const off = await relay()
-    expect((await fetch(`${off.url}/admin`)).status).toBe(404)
+  /** A relay with its admin account set up; `call` uses the admin session. */
+  async function adminRelay(overrides: Partial<RelayConfig> = {}) {
+    const logs: string[] = []
+    const r = await relay(overrides, undefined, (...a) => logs.push(a.join(' ')))
+    const raw = (method: string, path: string, body?: unknown, session = '') =>
+      fetch(`${r.url}/admin/api${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+    let session = ''
+    const status = (await (await raw('GET', '/status')).json()) as { setup: boolean }
+    if (status.setup) {
+      const code = /setup code (\w+)/.exec(logs.join('\n'))![1]
+      const res = await raw('POST', '/setup', { code, username: USER, password: PASS })
+      session = ((await res.json()) as { session: string }).session
+    } else {
+      const res = await raw('POST', '/login', { username: USER, password: PASS })
+      session = ((await res.json()) as { session: string }).session
+    }
+    const call = (method: string, path: string, body?: unknown) => raw(method, path, body, session)
+    return { r, raw, call, logs }
+  }
 
-    const r = await relay({ adminToken: ADMIN })
+  it('creates the admin account only with the setup code from the log', async () => {
+    const logs: string[] = []
+    const r = await relay({}, undefined, (...a) => logs.push(a.join(' ')))
+    const post = (path: string, body: unknown) =>
+      fetch(`${r.url}/admin/api${path}`, { method: 'POST', body: JSON.stringify(body) })
+
     const page = await fetch(`${r.url}/admin`)
     expect(page.status).toBe(200)
     expect(page.headers.get('access-control-allow-origin')).toBeNull()
     expect(await page.text()).toContain('AnyDot 中继管理')
-    expect((await api(r, 'GET', '/state', undefined, 'wrong')).status).toBe(401)
-    expect((await api(r, 'GET', '/state')).status).toBe(200)
+
+    expect(await (await fetch(`${r.url}/admin/api/status`)).json()).toEqual({ setup: true })
+    expect(
+      (await post('/setup', { code: 'WRONG123', username: USER, password: PASS })).status,
+    ).toBe(403)
+    const code = /setup code (\w+)/.exec(logs.join('\n'))![1]
+    expect((await post('/setup', { code, username: USER, password: 'short' })).status).toBe(400)
+    expect((await post('/setup', { code, username: USER, password: PASS })).status).toBe(200)
+    // Only once.
+    expect((await post('/setup', { code, username: 'eve', password: PASS })).status).toBe(409)
+
+    expect((await post('/login', { username: USER, password: 'nope-nope' })).status).toBe(401)
+    expect((await post('/login', { username: USER, password: PASS })).status).toBe(200)
+    expect((await fetch(`${r.url}/admin/api/state`)).status).toBe(401)
   })
 
-  it('locks out an address after repeated wrong admin tokens', async () => {
-    const r = await relay({ adminToken: ADMIN })
-    for (let i = 0; i < 10; i++) await api(r, 'GET', '/state', undefined, `wrong${i}`)
-    expect((await api(r, 'GET', '/state')).status).toBe(429)
+  it('locks out an address after repeated wrong passwords', async () => {
+    const { r, raw } = await adminRelay()
+    for (let i = 0; i < 10; i++) await raw('POST', '/login', { username: USER, password: `x${i}` })
+    expect((await raw('POST', '/login', { username: USER, password: PASS })).status).toBe(429)
+    expect(r.access.hasAdmin).toBe(true)
+  })
+
+  it('changing the password ends other sessions', async () => {
+    const { raw, call } = await adminRelay()
+    const other = (
+      (await (await raw('POST', '/login', { username: USER, password: PASS })).json()) as {
+        session: string
+      }
+    ).session
+    expect(
+      (await call('PUT', '/account', { current: 'wrong-pass', password: 'new password' })).status,
+    ).toBe(403)
+    const res = await call('PUT', '/account', { current: PASS, password: 'new password' })
+    expect(res.status).toBe(200)
+    expect((await raw('GET', '/state', undefined, other)).status).toBe(401)
+    expect((await raw('POST', '/login', { username: USER, password: 'new password' })).status).toBe(
+      200,
+    )
   })
 
   it('switches open to token-only, admits created tokens and kicks revoked ones', async () => {
-    const r = await relay({ adminToken: ADMIN })
+    const { r, call } = await adminRelay()
     const anyone = client(r.url)
     await until(() => anyone.c.state === 'online')
 
     // No token yet: switching would lock everyone out.
-    expect((await api(r, 'PUT', '/mode', { mode: 'token' })).status).toBe(400)
+    expect((await call('PUT', '/mode', { mode: 'token' })).status).toBe(400)
 
-    const created = (await (await api(r, 'POST', '/tokens', { name: '小王' })).json()) as {
+    const created = (await (await call('POST', '/tokens', { name: '小王' })).json()) as {
       token: string
       id: string
     }
     expect(created.token).toMatch(/^adr_/)
-    const state = await (await api(r, 'PUT', '/mode', { mode: 'token' })).json()
+    const state = await (await call('PUT', '/mode', { mode: 'token' })).json()
     expect(state).toMatchObject({ mode: 'token', tokens: [{ name: '小王', connections: 0 }] })
     expect(JSON.stringify(state)).not.toContain(created.token)
 
@@ -217,46 +269,74 @@ describe('relay admin', () => {
     const holder = client(r.url, { auth: { token: created.token } })
     const stranger = client(r.url, { auth: { token: 'adr_guess' } })
     await until(() => holder.c.state === 'online' && stranger.c.state === 'unauthorized')
-    const after = await (await api(r, 'GET', '/state')).json()
+    const after = await (await call('GET', '/state')).json()
     expect(after).toMatchObject({ tokens: [{ connections: 1 }], online: { mobiles: 1 } })
 
-    expect((await api(r, 'DELETE', `/tokens/${created.id}`)).status).toBe(200)
+    expect((await call('DELETE', `/tokens/${created.id}`)).status).toBe(200)
     await until(() => holder.c.state === 'unauthorized')
 
     // Back to open: anyone gets in again.
-    await api(r, 'PUT', '/mode', { mode: 'open' })
+    await call('PUT', '/mode', { mode: 'open' })
     const later = client(r.url)
     await until(() => later.c.state === 'online')
   })
 
-  it('keeps the AUTH_TOKEN env token and remembers the mode across restarts', async () => {
+  it('configures upstream mode and limits from the admin page', async () => {
+    const fakeFetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch
+    const logs: string[] = []
+    const r = await relay({}, fakeFetch, (...a) => logs.push(a.join(' ')))
+    const code = /setup code (\w+)/.exec(logs.join('\n'))![1]
+    const login = await fetch(`${r.url}/admin/api/setup`, {
+      method: 'POST',
+      body: JSON.stringify({ code, username: USER, password: PASS }),
+    })
+    const { session } = (await login.json()) as { session: string }
+    const call = (method: string, path: string, body?: unknown) =>
+      fetch(`${r.url}/admin/api${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${session}` },
+        body: JSON.stringify(body),
+      })
+
+    expect((await call('PUT', '/mode', { mode: 'upstream' })).status).toBe(400)
+    expect((await call('PUT', '/upstreams', { upstreams: ['ftp://x'] })).status).toBe(400)
+    const saved = await (
+      await call('PUT', '/upstreams', { upstreams: ['https://api.example.com/'] })
+    ).json()
+    expect(saved).toMatchObject({ upstreams: ['https://api.example.com/v1'] })
+    expect((await call('PUT', '/mode', { mode: 'upstream' })).status).toBe(200)
+
+    const user = client(r.url, { auth: { baseUrl: 'https://api.example.com', apiKey: 'sk-1' } })
+    await until(() => user.c.state === 'online')
+    // Dropping its provider from the list disconnects it.
+    expect((await call('PUT', '/upstreams', { upstreams: [] })).status).toBe(400)
+    await call('PUT', '/upstreams', { upstreams: ['https://other.example.com'] })
+    await until(() => user.c.state === 'unauthorized')
+
+    expect((await call('PUT', '/limits', { messageRate: 0 })).status).toBe(400)
+    const limited = await (await call('PUT', '/limits', { maxConnectionsPerIp: 1 })).json()
+    expect(limited).toMatchObject({ limits: { maxConnectionsPerIp: 1, messageRate: 50 } })
+  })
+
+  it('keeps the AUTH_TOKEN env token and remembers settings across restarts', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'relay-'))
     cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }))
-    const first = await relay({
-      dataDir,
-      auth: 'token',
-      authToken: 'env-secret',
-      adminToken: ADMIN,
-    })
-    expect(await (await api(first, 'GET', '/state')).json()).toMatchObject({
+    const first = await adminRelay({ dataDir, auth: 'token', authToken: 'env-secret' })
+    expect(await (await first.call('GET', '/state')).json()).toMatchObject({
       mode: 'token',
       hasEnvToken: true,
-      modes: ['open', 'token'],
     })
-    expect((await api(first, 'DELETE', '/tokens/env')).status).toBe(400)
-    const envClient = client(first.url, { auth: { token: 'env-secret' } })
+    expect((await first.call('DELETE', '/tokens/env')).status).toBe(400)
+    const envClient = client(first.r.url, { auth: { token: 'env-secret' } })
     await until(() => envClient.c.state === 'online')
 
-    await api(first, 'PUT', '/mode', { mode: 'open' })
-    expect((await api(first, 'PUT', '/mode', { mode: 'upstream' })).status).toBe(400)
-    await first.close()
+    await first.call('PUT', '/mode', { mode: 'open' })
+    await first.r.close()
 
-    const second = await relay({
-      dataDir,
-      auth: 'token',
-      authToken: 'env-secret',
-      adminToken: ADMIN,
-    })
-    expect(await (await fetch(`${second.url}/info`)).json()).toMatchObject({ auth: 'open' })
+    // Same data dir: no new setup code, same account, saved mode wins over AUTH_MODE.
+    const second = await adminRelay({ dataDir, auth: 'token', authToken: 'env-secret' })
+    expect(second.logs.join()).not.toContain('setup code')
+    expect((await second.call('GET', '/state')).status).toBe(200)
+    expect(await (await fetch(`${second.r.url}/info`)).json()).toMatchObject({ auth: 'open' })
   })
 })
