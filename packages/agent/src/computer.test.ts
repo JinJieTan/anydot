@@ -155,7 +155,8 @@ describe('dropOldImages', () => {
   })
 })
 
-describe.runIf(process.platform === 'win32')('Windows driver', () => {
+// Drives the real screen and mouse, which hosted CI runners don't have an interactive desktop for.
+describe.runIf(process.platform === 'win32' && !process.env.CI)('Windows driver', () => {
   it('lists displays, captures one and moves the mouse', async () => {
     const { nativeDriver } = await import('./computer')
     const driver = nativeDriver('win32')!
