@@ -8,11 +8,15 @@
 - **手机连接**：扫码配对、端到端加密、远程派任务和审批、推送通知；手机也可以直接对话和生图
 - **数据只在本地**：SQLite + 内容寻址的文件存储，支持导出 / 导入；API Key 用系统钥匙串加密
 
+![AnyDot 桌面端](docs/images/screenshot-code.png)
+
+![让 AI 操作浏览器](docs/images/screenshot-browser.png)
+
 设计文档：[docs/PLAN.md](docs/PLAN.md) · 中继部署：[docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## 安装
 
-到 [Releases](https://github.com/JinJieTan/anydot/releases) 下载对应系统的安装包：
+到官网 [anydot.app](https://anydot.app) 或 [Releases](https://github.com/JinJieTan/anydot/releases) 下载对应系统的安装包：
 
 | 系统                            | 文件                                    |
 | ------------------------------- | --------------------------------------- |
