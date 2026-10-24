@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Folder, FolderOpen, GitBranch, GitCompare, Settings2, Terminal } from 'lucide-react'
+import { Folder, FolderOpen, GitBranch, GitCompare, Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   Attachment,
@@ -136,13 +136,7 @@ export function ChatView() {
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-24">
           <div className="w-full max-w-2xl">
             <div className="mb-8 flex flex-col items-center text-center">
-              {project ? (
-                <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent/12 text-accent">
-                  <Terminal className="size-6" />
-                </div>
-              ) : (
-                <LogoMark className="mb-4 size-11 text-fg" />
-              )}
+              <LogoMark className="mb-4 size-11 text-fg" />
               <h1 className="text-2xl font-semibold">
                 {project ? `在「${project.name}」中做点什么？` : '有什么可以帮你？'}
               </h1>
