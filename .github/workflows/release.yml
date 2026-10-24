@@ -48,6 +48,8 @@ jobs:
       # Each gets its own update channel so the arm64 build doesn't overwrite latest.yml.
       - name: Package (Windows, x64 and arm64)
         if: runner.os == 'Windows'
+        # bash, not PowerShell: PowerShell splits -c.publish.channel=... into a config file path.
+        shell: bash
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false

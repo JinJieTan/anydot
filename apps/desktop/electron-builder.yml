@@ -29,9 +29,9 @@ mac:
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 win:
-  target:
-    - target: nsis
-      arch: [x64, arm64]
+  # No arch list here: CI passes --x64 / --arm64 so each installer is built on its own
+  # (an arch list in the config overrides the CLI flags and adds a combined installer).
+  target: nsis
 nsis:
   artifactName: ${productName}-${version}-windows-${arch}-setup.${ext}
   oneClick: false
