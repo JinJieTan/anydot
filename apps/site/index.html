@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AnyDot</title>
+    <meta name="description" content="开源 AI 桌面客户端：填入 Base URL 和 Key，就能用 GPT、Claude 写代码、跑命令，手机扫码远程派任务。" />
+    <meta name="theme-color" content="#faf9f5" />
+    <link rel="icon" href="/logo-mark.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #faf9f5;
+        --panel: #f3f1ea;
+        --line: #e3e0d5;
+        --fg: #1f1e1c;
+        --soft: #5e5c56;
+        --faint: #8f8c84;
+        --accent: #c8603c;
+        --ink: #2c2c2a;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #262624;
+          --panel: #1f1e1c;
+          --line: #393834;
+          --fg: #f3f1ea;
+          --soft: #c2c0b6;
+          --faint: #8f8c84;
+          --accent: #d97757;
+          --ink: #f3f1ea;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.7 system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main { max-width: 760px; margin: 0 auto; padding: 96px 20px 64px; }
+      .mark { width: 64px; height: 64px; display: block; margin-bottom: 28px; }
+      h1 { font-size: 44px; line-height: 1.15; margin: 0 0 16px; letter-spacing: -0.02em; }
+      .lead { font-size: 19px; color: var(--soft); margin: 0 0 32px; max-width: 34em; }
+      .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 72px; }
+      .btn {
+        display: inline-flex; align-items: center; height: 44px; padding: 0 20px;
+        border-radius: 10px; font-weight: 600; text-decoration: none; font-size: 15px;
+      }
+      .primary { background: var(--accent); color: #fff; }
+      .secondary { border: 1px solid var(--line); color: var(--fg); }
+      .soon { cursor: default; opacity: 0.85; }
+      .btn svg { width: 18px; height: 18px; margin-right: 8px; fill: currentColor; }
+      .secondary:hover { border-color: var(--faint); }
+      footer a { color: inherit; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; }
+      .card h2 { font-size: 15px; margin: 0 0 6px; }
+      .card p { margin: 0; color: var(--soft); font-size: 14px; line-height: 1.65; }
+      footer { margin-top: 72px; color: var(--faint); font-size: 13px; }
+      @media (max-width: 520px) { main { padding-top: 64px; } h1 { font-size: 34px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="mark" viewBox="40 26 116 128" aria-label="AnyDot">
+        <path d="M84 42 L90 42 C121 42 140 64 140 90 C140 116 121 138 90 138 L62 138 Q56 138 56 132 L56 64" fill="none" stroke="var(--ink)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round" />
+        <circle cx="98" cy="90" r="16" fill="var(--accent)" />
+      </svg>
+      <h1>AnyDot</h1>
+      <p class="lead">开源的 AI 桌面客户端。填入 Base URL 和 Key，就能用 GPT、Claude 对话、生图，在项目里写代码、跑命令；手机扫码配对，随时远程派任务。</p>
+      <div class="actions">
+        <span class="btn primary soon">桌面版即将发布</span>
+        <a class="btn secondary" href="/ctl/m/">打开手机端</a>
+        <a class="btn secondary" href="https://github.com/JinJieTan/anydot" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+      <div class="grid">
+        <div class="card"><h2>任意 Key</h2><p>OpenAI、Anthropic 兼容接口都能用，Key 用系统钥匙串加密，只存在你的电脑上。</p></div>
+        <div class="card"><h2>能干活的 Agent</h2><p>读写项目文件、执行命令、操作浏览器，危险操作始终先问你。</p></div>
+        <div class="card"><h2>手机远程</h2><p>扫码配对，端到端加密。出门在外也能派任务、点批准。</p></div>
+      </div>
+      <footer>© AnyDot · MIT License · <a href="https://github.com/JinJieTan/anydot" target="_blank" rel="noopener">GitHub</a></footer>
+    </main>
+  </body>
+</html>
