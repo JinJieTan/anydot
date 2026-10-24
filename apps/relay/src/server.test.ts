@@ -20,7 +20,7 @@ async function relay(
   overrides: Partial<RelayConfig> = {},
   fetchImpl?: typeof fetch,
 ): Promise<RelayServer> {
-  const dataDir = mkdtempSync(join(tmpdir(), 'relay-'))
+  const dataDir = overrides.dataDir ?? mkdtempSync(join(tmpdir(), 'relay-'))
   const r = await startRelay(
     {
       port: 0,
@@ -162,5 +162,101 @@ describe('relay', () => {
     })
     await new Promise((res) => setTimeout(res, 200))
     expect(b.inbox).toHaveLength(0)
+  })
+})
+
+describe('relay admin', () => {
+  const ADMIN = 'admin-secret-0123456789'
+  const api = (r: RelayServer, method: string, path: string, body?: unknown, key = ADMIN) =>
+    fetch(`${r.url}/admin/api${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+
+  it('is off without ADMIN_TOKEN and rejects a wrong admin token', async () => {
+    const off = await relay()
+    expect((await fetch(`${off.url}/admin`)).status).toBe(404)
+
+    const r = await relay({ adminToken: ADMIN })
+    const page = await fetch(`${r.url}/admin`)
+    expect(page.status).toBe(200)
+    expect(page.headers.get('access-control-allow-origin')).toBeNull()
+    expect(await page.text()).toContain('AnyDot 中继管理')
+    expect((await api(r, 'GET', '/state', undefined, 'wrong')).status).toBe(401)
+    expect((await api(r, 'GET', '/state')).status).toBe(200)
+  })
+
+  it('locks out an address after repeated wrong admin tokens', async () => {
+    const r = await relay({ adminToken: ADMIN })
+    for (let i = 0; i < 10; i++) await api(r, 'GET', '/state', undefined, `wrong${i}`)
+    expect((await api(r, 'GET', '/state')).status).toBe(429)
+  })
+
+  it('switches open to token-only, admits created tokens and kicks revoked ones', async () => {
+    const r = await relay({ adminToken: ADMIN })
+    const anyone = client(r.url)
+    await until(() => anyone.c.state === 'online')
+
+    // No token yet: switching would lock everyone out.
+    expect((await api(r, 'PUT', '/mode', { mode: 'token' })).status).toBe(400)
+
+    const created = (await (await api(r, 'POST', '/tokens', { name: '小王' })).json()) as {
+      token: string
+      id: string
+    }
+    expect(created.token).toMatch(/^adr_/)
+    const state = await (await api(r, 'PUT', '/mode', { mode: 'token' })).json()
+    expect(state).toMatchObject({ mode: 'token', tokens: [{ name: '小王', connections: 0 }] })
+    expect(JSON.stringify(state)).not.toContain(created.token)
+
+    // The open-mode client is dropped and the relay now advertises token auth.
+    await until(() => anyone.c.state === 'unauthorized')
+    expect(await (await fetch(`${r.url}/info`)).json()).toMatchObject({ auth: 'token' })
+
+    const holder = client(r.url, { auth: { token: created.token } })
+    const stranger = client(r.url, { auth: { token: 'adr_guess' } })
+    await until(() => holder.c.state === 'online' && stranger.c.state === 'unauthorized')
+    const after = await (await api(r, 'GET', '/state')).json()
+    expect(after).toMatchObject({ tokens: [{ connections: 1 }], online: { mobiles: 1 } })
+
+    expect((await api(r, 'DELETE', `/tokens/${created.id}`)).status).toBe(200)
+    await until(() => holder.c.state === 'unauthorized')
+
+    // Back to open: anyone gets in again.
+    await api(r, 'PUT', '/mode', { mode: 'open' })
+    const later = client(r.url)
+    await until(() => later.c.state === 'online')
+  })
+
+  it('keeps the AUTH_TOKEN env token and remembers the mode across restarts', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'relay-'))
+    cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }))
+    const first = await relay({
+      dataDir,
+      auth: 'token',
+      authToken: 'env-secret',
+      adminToken: ADMIN,
+    })
+    expect(await (await api(first, 'GET', '/state')).json()).toMatchObject({
+      mode: 'token',
+      hasEnvToken: true,
+      modes: ['open', 'token'],
+    })
+    expect((await api(first, 'DELETE', '/tokens/env')).status).toBe(400)
+    const envClient = client(first.url, { auth: { token: 'env-secret' } })
+    await until(() => envClient.c.state === 'online')
+
+    await api(first, 'PUT', '/mode', { mode: 'open' })
+    expect((await api(first, 'PUT', '/mode', { mode: 'upstream' })).status).toBe(400)
+    await first.close()
+
+    const second = await relay({
+      dataDir,
+      auth: 'token',
+      authToken: 'env-secret',
+      adminToken: ADMIN,
+    })
+    expect(await (await fetch(`${second.url}/info`)).json()).toMatchObject({ auth: 'open' })
   })
 })

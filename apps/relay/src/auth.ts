@@ -1,5 +1,6 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
-import type { ClientAuth } from '@aitech/protocol'
+import { createHash } from 'node:crypto'
+import type { AuthMode, ClientAuth } from '@aitech/protocol'
+import type { AccessStore } from './access'
 import type { RelayConfig } from './config'
 
 /** "https://Host/v1/" → "https://host/v1" for allow-list comparison. */
@@ -14,23 +15,31 @@ export function normalizeUpstream(url: string): string {
 
 const cache = new Map<string, { ok: boolean; until: number }>()
 
+/** How a connection got in, so it can be re-checked when the admin changes access. */
+export interface Admission {
+  mode: AuthMode
+  /** token mode: which access token was used. */
+  tokenId?: string
+}
+
 /**
- * Decide whether a client may use this relay. Only admission is checked here;
- * what a device may do to another device is decided by the devices themselves
- * through pairing.
+ * Decide whether a client may use this relay: an Admission, or why not.
+ * Only admission is checked here; what a device may do to another device is
+ * decided by the devices themselves through pairing.
  */
 export async function admit(
   config: RelayConfig,
+  access: AccessStore,
   auth: ClientAuth | undefined,
   doFetch: typeof fetch = fetch,
-): Promise<string | null> {
-  switch (config.auth) {
+): Promise<Admission | string> {
+  const mode = access.mode
+  switch (mode) {
     case 'open':
-      return null
+      return { mode }
     case 'token': {
-      const a = Buffer.from(auth?.token ?? '')
-      const b = Buffer.from(config.authToken ?? '')
-      return a.length === b.length && timingSafeEqual(a, b) ? null : '需要正确的访问令牌'
+      const tokenId = access.match(auth?.token)
+      return tokenId ? { mode, tokenId } : '需要正确的访问令牌'
     }
     case 'upstream': {
       if (!auth?.baseUrl || !auth.apiKey) return '需要提供服务商 Base URL 和 API Key'
@@ -45,7 +54,7 @@ export async function admit(
       // Cache by hash: the relay never stores keys.
       const id = createHash('sha256').update(`${base}|${auth.apiKey}`).digest('hex')
       const hit = cache.get(id)
-      if (hit && hit.until > Date.now()) return hit.ok ? null : 'API Key 无效'
+      if (hit && hit.until > Date.now()) return hit.ok ? { mode } : 'API Key 无效'
       let ok: boolean
       try {
         const res = await doFetch(`${base}/models`, {
@@ -58,7 +67,19 @@ export async function admit(
       }
       cache.set(id, { ok, until: Date.now() + (ok ? 10 * 60_000 : 60_000) })
       if (cache.size > 10_000) cache.clear()
-      return ok ? null : 'API Key 无效'
+      return ok ? { mode } : 'API Key 无效'
     }
+  }
+}
+
+/** Whether a connection admitted earlier still may stay after an access change. */
+export function stillAdmitted(a: Admission, access: AccessStore): boolean {
+  switch (access.mode) {
+    case 'open':
+      return true
+    case 'token':
+      return a.mode === 'token' && !!a.tokenId && access.isValid(a.tokenId)
+    case 'upstream':
+      return a.mode === 'upstream'
   }
 }

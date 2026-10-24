@@ -15,7 +15,9 @@ import {
   type ServerFrame,
 } from '@aitech/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { admit } from './auth'
+import { AccessStore } from './access'
+import { createAdmin } from './admin'
+import { admit, stillAdmitted, type Admission } from './auth'
 import type { RelayConfig } from './config'
 import { PushService } from './push'
 
@@ -27,6 +29,7 @@ interface Conn {
   deviceId: string | null
   publicKey: string | null
   kind: DeviceKind | null
+  admission: Admission | null
   tokens: number
   lastRefill: number
 }
@@ -51,6 +54,7 @@ export interface RelayServer {
   close: () => Promise<void>
   /** For tests and metrics. */
   online: () => number
+  access: AccessStore
 }
 
 export async function startRelay(
@@ -67,11 +71,45 @@ export async function startRelay(
 
   const devices = new Map<string, Set<Conn>>()
   const perIp = new Map<string, number>()
+  const access = new AccessStore(config.dataDir, {
+    mode: config.auth,
+    envToken: config.authToken,
+  })
+  // A saved mode the current env can't serve falls back to the env's.
+  if (access.mode === 'upstream' && !config.allowedUpstreams.length) access.setMode(config.auth)
+
+  const loggedIn = () => [...devices.values()].flatMap((set) => [...set])
+  const admin = createAdmin({
+    config,
+    access,
+    stats: () => {
+      const conns = loggedIn()
+      const byToken: Record<string, number> = {}
+      for (const c of conns) {
+        const id = c.admission?.tokenId
+        if (id) byToken[id] = (byToken[id] ?? 0) + 1
+      }
+      const count = (kind: DeviceKind) =>
+        new Set(conns.filter((c) => c.kind === kind).map((c) => c.deviceId)).size
+      return { desktops: count('desktop'), mobiles: count('mobile'), byToken }
+    },
+    enforce: () => {
+      for (const c of loggedIn()) {
+        if (c.admission && stillAdmitted(c.admission, access)) continue
+        send(c.ws, {
+          t: 'error',
+          code: 'unauthorized',
+          message: '中继的准入设置已更改，请重新验证',
+        })
+        c.ws.close(4403, 'not admitted')
+      }
+    },
+  })
 
   const info = (): RelayInfo => ({
     name: 'aitech-relay',
     version: VERSION,
-    auth: config.auth,
+    auth: access.mode,
     vapidPublicKey: push?.publicKey,
     mobileUrl:
       config.mobileDir && config.publicUrl
@@ -94,6 +132,7 @@ export async function startRelay(
       res.end(JSON.stringify(info()))
       return
     }
+    if (await admin(req, res, url, clientIp(req))) return
     if (url.pathname === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok')
       return
@@ -176,6 +215,7 @@ export async function startRelay(
       deviceId: null,
       publicKey: null,
       kind: null,
+      admission: null,
       tokens: config.messageRate * 2,
       lastRefill: Date.now(),
     }
@@ -253,11 +293,12 @@ export async function startRelay(
         send(ws, { t: 'error', code: 'unauthorized', message: '设备签名无效' })
         return ws.close(4401, 'bad signature')
       }
-      const denied = await admit(config, f.auth, opts.fetch)
-      if (denied) {
-        send(ws, { t: 'error', code: 'unauthorized', message: denied })
+      const admission = await admit(config, access, f.auth, opts.fetch)
+      if (typeof admission === 'string') {
+        send(ws, { t: 'error', code: 'unauthorized', message: admission })
         return ws.close(4403, 'not admitted')
       }
+      conn.admission = admission
       conn.deviceId = f.deviceId
       conn.publicKey = f.publicKey
       conn.kind = f.kind === 'desktop' ? 'desktop' : 'mobile'
@@ -342,8 +383,10 @@ export async function startRelay(
     url: `http://${host}:${addr.port}`,
     server,
     online: () => devices.size,
+    access,
     close: () =>
       new Promise((r) => {
+        access.flush()
         for (const c of wss.clients) c.terminate()
         wss.close()
         server.closeAllConnections()
