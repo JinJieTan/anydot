@@ -1,6 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 /**
  * Skills and slash commands, compatible with Claude Code's layout:
@@ -16,6 +16,8 @@ export interface Skill {
   /** SKILL.md or the command file. */
   path: string
   scope: 'project' | 'user'
+  /** Hidden by a same-named skill/command from a higher-priority root. */
+  shadowed?: boolean
 }
 
 export function skillRoots(cwd: string | null, home = homedir()) {
@@ -33,10 +35,17 @@ export function skillRoots(cwd: string | null, home = homedir()) {
 
 /** Every skill and command visible from `cwd`; earlier roots shadow later ones by name. */
 export async function loadSkills(cwd: string | null, home?: string): Promise<Skill[]> {
-  const found = new Map<string, Skill>()
+  return (await scanSkills(cwd, home)).filter((s) => !s.shadowed)
+}
+
+/** Every skill and command file under the roots, shadowed ones included and marked. */
+export async function scanSkills(cwd: string | null, home?: string): Promise<Skill[]> {
+  const found: Skill[] = []
+  const seen = new Set<string>()
   const add = (s: Skill) => {
     const key = `${s.kind}:${s.name}`
-    if (!found.has(key)) found.set(key, s)
+    found.push(seen.has(key) ? { ...s, shadowed: true } : s)
+    seen.add(key)
   }
   for (const root of skillRoots(cwd, home)) {
     for (const entry of await list(join(root.dir, 'skills'))) {
@@ -69,7 +78,46 @@ export async function loadSkills(cwd: string | null, home?: string): Promise<Ski
       })
     }
   }
-  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return found.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** A name usable as a folder/file name and a /command. */
+export const SKILL_NAME = /^[\p{L}\p{N}][\p{L}\p{N}_.-]{0,63}$/u
+
+/** Creates `<rootDir>/skills/<name>/SKILL.md` or `<rootDir>/commands/<name>.md` from a template. */
+export async function createSkill(input: {
+  rootDir: string
+  kind: Skill['kind']
+  name: string
+  description: string
+}): Promise<string> {
+  const name = input.name.trim()
+  if (!SKILL_NAME.test(name)) throw new Error('名称只能包含文字、数字、- _ .，且不能以符号开头')
+  const description = input.description.trim().replace(/\s+/g, ' ')
+  const path =
+    input.kind === 'skill'
+      ? join(input.rootDir, 'skills', name, 'SKILL.md')
+      : join(input.rootDir, 'commands', `${name}.md`)
+  if ((await read(path)) !== null) throw new Error(`「${name}」已存在`)
+  const text =
+    input.kind === 'skill'
+      ? `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n\n在这里写 AI 使用这个技能时要遵循的步骤和要求。\n`
+      : `---\ndescription: ${description}\n---\n\n在这里写命令展开后的提示词。用 $ARGUMENTS 代表 /${name} 后面输入的内容。\n`
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, text, { flag: 'wx' })
+  return path
+}
+
+/** Whether `path` is a skill or command file under one of `roots` (guards renderer-supplied paths). */
+export function isSkillPath(path: string, roots: { dir: string }[]): boolean {
+  const p = resolve(path)
+  return roots.some(({ dir }) => {
+    const parts = relative(resolve(dir), p).split(sep)
+    return (
+      (parts.length === 3 && parts[0] === 'skills' && parts[2] === 'SKILL.md') ||
+      (parts.length === 2 && parts[0] === 'commands' && parts[1]!.endsWith('.md'))
+    )
+  })
 }
 
 /** The full instructions of a skill, for the model. */

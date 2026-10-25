@@ -11,6 +11,7 @@ import {
   nativeTheme,
   shell,
 } from 'electron'
+import { createSkill, isSkillPath, scanSkills, skillRoots } from '@aitech/agent/skills'
 import { inferCapabilities, listModels, normalizeBaseUrl } from '@aitech/core'
 import { schemaVersion, type ProviderRow, type Store } from '@aitech/db'
 import {
@@ -149,6 +150,21 @@ export function registerIpc({
   dbPath,
 }: Deps): void {
   const getSettings = () => loadSettings(store)
+  const projectRoot = (projectId: string | null) => {
+    if (!projectId) return null
+    const p = store.getProject(projectId)
+    if (!p) throw new Error('项目不存在')
+    return p.rootPath
+  }
+  /** A renderer-supplied path, allowed only if it is a skill/command file of the user or a project. */
+  const skillPath = (path: string) => {
+    const roots = [
+      ...skillRoots(null),
+      ...store.listProjects().flatMap((p) => skillRoots(p.rootPath)),
+    ]
+    if (!isSkillPath(path, roots)) throw new Error('不是技能或命令文件')
+    return path
+  }
 
   const handlers: { [K in RpcMethod]: (...args: Parameters<Rpc[K]>) => unknown } = {
     'app.info': () => ({
@@ -445,6 +461,25 @@ export function registerIpc({
     'mcp.list': () => mcp.list(),
     'mcp.save': (server) => mcp.upsert(server),
     'mcp.delete': (id) => mcp.remove(id),
+
+    'skills.list': async (projectId) => {
+      const cwd = projectRoot(projectId)
+      return { roots: skillRoots(cwd), items: await scanSkills(cwd) }
+    },
+    'skills.create': ({ projectId, kind, name, description }) => {
+      // New ones go in the AnyDot folder of the chosen scope (first root of that scope).
+      const root = skillRoots(projectRoot(projectId)).find(
+        (r) => r.scope === (projectId ? 'project' : 'user'),
+      )!
+      return createSkill({ rootDir: root.dir, kind, name, description })
+    },
+    'skills.read': (path) => readFile(skillPath(path), 'utf8'),
+    'skills.save': ({ path, content }) => writeFile(skillPath(path), content),
+    'skills.reveal': (path) => shell.showItemInFolder(skillPath(path)),
+    'skills.delete': (path) => {
+      const p = skillPath(path)
+      return shell.trashItem(basename(p) === 'SKILL.md' ? dirname(p) : p)
+    },
 
     'preview.html': (html) => openPreview(html),
     'artifact.url': (html) => artifacts.put(html),

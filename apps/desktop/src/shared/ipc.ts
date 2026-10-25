@@ -160,6 +160,14 @@ export interface CommandDTO {
   argumentHint?: string
   path: string
   scope: 'project' | 'user'
+  /** Hidden by a same-named one from a higher-priority folder (settings listing only). */
+  shadowed?: boolean
+}
+
+/** Where skills and commands are read from, highest priority first. */
+export interface SkillRootDTO {
+  dir: string
+  scope: 'project' | 'user'
 }
 
 /** The AnyDot Chrome extension's connection to the app. */
@@ -414,6 +422,21 @@ export interface Rpc {
   'mcp.save': (server: Omit<McpServerDTO, 'id'> & { id?: string }) => McpServerDTO
   'mcp.delete': (id: string) => void
 
+  /** Skills and commands of the user (projectId null) or of a project plus the user's. */
+  'skills.list': (projectId: string | null) => { roots: SkillRootDTO[]; items: CommandDTO[] }
+  /** Creates from a template in the scope's .aitech folder; returns the new file's path. */
+  'skills.create': (input: {
+    projectId: string | null
+    kind: 'skill' | 'command'
+    name: string
+    description: string
+  }) => string
+  'skills.read': (path: string) => string
+  'skills.save': (input: { path: string; content: string }) => void
+  'skills.reveal': (path: string) => void
+  /** Moves a skill's folder, or a command file, to the trash. */
+  'skills.delete': (path: string) => void
+
   /** Open model-generated HTML in an isolated preview window. */
   'preview.html': (html: string) => void
   /** Serve a page for the artifact panel's sandboxed iframe; returns its URL. */
@@ -516,6 +539,12 @@ const RPC_ALLOWLIST: Record<RpcMethod, true> = {
   'mcp.list': true,
   'mcp.save': true,
   'mcp.delete': true,
+  'skills.list': true,
+  'skills.create': true,
+  'skills.read': true,
+  'skills.save': true,
+  'skills.reveal': true,
+  'skills.delete': true,
   'preview.html': true,
   'artifact.url': true,
   'artifact.readFile': true,

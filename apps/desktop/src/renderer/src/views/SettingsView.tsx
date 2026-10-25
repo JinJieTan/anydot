@@ -8,17 +8,27 @@ import { AutomationTab } from '../components/Automation'
 import { McpTab } from '../components/Mcp'
 import { RemoteTab } from '../components/Remote'
 import { SchedulesTab } from '../components/Schedules'
+import { SkillsTab } from '../components/Skills'
 import { UpdateCheck } from '../components/Updates'
 import { Badge, Button, Field, IconButton, Input, Select, Spinner, Toggle } from '../components/ui'
 import { invoke, isMac } from '../lib/api'
 import { attempt, succeeded, useApp } from '../store/app'
 
 type Tab =
-  'providers' | 'mcp' | 'automation' | 'schedules' | 'remote' | 'general' | 'data' | 'about'
+  | 'providers'
+  | 'mcp'
+  | 'skills'
+  | 'automation'
+  | 'schedules'
+  | 'remote'
+  | 'general'
+  | 'data'
+  | 'about'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: '服务商与模型' },
   { id: 'mcp', label: 'MCP 工具' },
+  { id: 'skills', label: '技能与命令' },
   { id: 'automation', label: 'Agent 能力' },
   { id: 'schedules', label: '定时任务' },
   { id: 'remote', label: '手机连接' },
@@ -55,6 +65,7 @@ export function SettingsView() {
         <div className="min-w-0 flex-1 overflow-y-auto">
           {tab === 'providers' && <ProvidersTab />}
           {tab === 'mcp' && <McpTab />}
+          {tab === 'skills' && <SkillsTab />}
           {tab === 'automation' && <AutomationTab />}
           {tab === 'schedules' && <SchedulesTab />}
           {tab === 'remote' && <RemoteTab />}

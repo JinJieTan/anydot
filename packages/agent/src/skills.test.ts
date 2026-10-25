@@ -2,7 +2,15 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { expandCommand, loadSkills, parseFrontmatter, readSkill } from './skills'
+import {
+  createSkill,
+  expandCommand,
+  isSkillPath,
+  loadSkills,
+  parseFrontmatter,
+  readSkill,
+  scanSkills,
+} from './skills'
 
 async function put(path: string, text: string) {
   await mkdir(join(path, '..'), { recursive: true })
@@ -57,5 +65,45 @@ describe('skills', () => {
     expect(await readSkill(deploy)).toContain('Run the deploy.')
     expect(await readSkill(deploy)).toContain(join(project, '.claude/skills/deploy'))
     expect(await expandCommand(deploy, 'prod')).toMatch(/Run the deploy\.\n\nARGUMENTS: prod$/)
+  })
+
+  it('scans shadowed entries too, marked', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aitech-skills-'))
+    const project = join(root, 'proj')
+    const home = join(root, 'home')
+    await put(join(project, '.aitech/commands/review.md'), 'Project review.')
+    await put(join(home, '.claude/commands/review.md'), 'User review.')
+    const all = await scanSkills(project, home)
+    expect(all.map((s) => `${s.scope}:${!!s.shadowed}`)).toEqual(['project:false', 'user:true'])
+    expect(await loadSkills(project, home)).toHaveLength(1)
+  })
+
+  it('creates skills and commands from a template, refusing duplicates and bad names', async () => {
+    const rootDir = join(await mkdtemp(join(tmpdir(), 'aitech-skills-')), '.aitech')
+    const skill = await createSkill({ rootDir, kind: 'skill', name: '周报', description: 'Weekly' })
+    expect(skill).toBe(join(rootDir, 'skills/周报/SKILL.md'))
+    const cmd = await createSkill({ rootDir, kind: 'command', name: 'review', description: 'R' })
+    expect(cmd).toBe(join(rootDir, 'commands/review.md'))
+    const home = join(rootDir, '..')
+    const found = await loadSkills(null, home)
+    expect(found.map((s) => `${s.kind}:${s.name}:${s.description}`)).toEqual([
+      'command:review:R',
+      'skill:周报:Weekly',
+    ])
+    await expect(
+      createSkill({ rootDir, kind: 'skill', name: '周报', description: '' }),
+    ).rejects.toThrow('已存在')
+    await expect(
+      createSkill({ rootDir, kind: 'skill', name: '../x', description: '' }),
+    ).rejects.toThrow()
+  })
+
+  it('accepts only skill and command files under the roots', () => {
+    const roots = [{ dir: '/h/.aitech' }]
+    expect(isSkillPath('/h/.aitech/skills/a/SKILL.md', roots)).toBe(true)
+    expect(isSkillPath('/h/.aitech/commands/a.md', roots)).toBe(true)
+    expect(isSkillPath('/h/.aitech/skills/a/other.md', roots)).toBe(false)
+    expect(isSkillPath('/h/.aitech/skills/../../.ssh/SKILL.md', roots)).toBe(false)
+    expect(isSkillPath('/h/.bashrc', roots)).toBe(false)
   })
 })

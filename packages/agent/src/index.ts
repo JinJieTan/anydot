@@ -35,7 +35,17 @@ export type {
 } from './tools'
 export { Computer, nativeDriver } from './computer'
 export type { DisplayInfo } from './computer'
-export { expandCommand, loadSkills, parseFrontmatter, readSkill, skillRoots } from './skills'
+export {
+  createSkill,
+  expandCommand,
+  isSkillPath,
+  loadSkills,
+  parseFrontmatter,
+  readSkill,
+  scanSkills,
+  SKILL_NAME,
+  skillRoots,
+} from './skills'
 export type { Skill } from './skills'
 export { createSubagent } from './subagent'
 export { Hooks, hasHooks, hookFiles, loadHooks } from './hooks'
