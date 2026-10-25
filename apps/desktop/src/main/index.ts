@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme, protocol, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, protocol, shell } from 'electron'
 import type { BrowserCommand } from '@aitech/agent'
 import { newId } from '@aitech/core'
 import { openDatabase, Store } from '@aitech/db'
@@ -209,6 +209,9 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     // Packaged builds get the icon from the bundle; in dev the Dock would show Electron's.
     if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
+    // Electron's default English File/Edit/View menu bar sits inside every window on
+    // Windows/Linux. macOS keeps it in the system menu bar, where its Edit menu provides copy/paste.
+    if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
     const dataDir = join(app.getPath('userData'), 'data')
     mkdirSync(dataDir, { recursive: true })
     const opened = openStore(dataDir)
