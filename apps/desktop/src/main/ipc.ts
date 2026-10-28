@@ -226,6 +226,7 @@ export function registerIpc({
         }
       }
       store.setSetting(SETTINGS_KEY, next)
+      if (patch.chatPermissionMode) chat.chatModeChanged()
       nativeTheme.themeSource = next.theme
       await chromeExt.setEnabled(next.browserTool && next.browserBackend === 'chrome')
       return next

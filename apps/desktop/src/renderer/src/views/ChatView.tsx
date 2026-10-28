@@ -1,13 +1,7 @@
 import clsx from 'clsx'
 import { Folder, FolderOpen, GitBranch, GitCompare, Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type {
-  Attachment,
-  ConversationDTO,
-  PermissionMode,
-  ProjectDTO,
-  Rpc,
-} from '../../../shared/ipc'
+import type { Attachment, ConversationDTO, PermissionMode, Rpc } from '../../../shared/ipc'
 import { Composer } from '../components/Composer'
 import { AssistantMessage, UserMessage } from '../components/Message'
 import { ModelPicker, ThinkingPicker } from '../components/ModelPicker'
@@ -110,7 +104,28 @@ export function ChatView() {
           }}
         />
       )}
-      {project && <ModePicker project={project} />}
+      {project ? (
+        <ModePicker
+          modes={MODES}
+          value={project.permissionMode}
+          title="权限模式（对整个项目生效）"
+          onChange={async (permissionMode) => {
+            const next = await attempt(() =>
+              invoke('projects.update', project.id, { permissionMode }),
+            )
+            if (next) useApp.getState().upsertProject(next)
+          }}
+        />
+      ) : (
+        <ModePicker
+          modes={CHAT_MODES}
+          value={settings.chatPermissionMode}
+          title="权限模式（对所有普通对话生效）"
+          onChange={(chatPermissionMode) =>
+            void useApp.getState().updateSettings({ chatPermissionMode })
+          }
+        />
+      )}
     </>
   )
 
@@ -292,39 +307,53 @@ const MODES: { value: PermissionMode; label: string; hint: string }[] = [
   { value: 'plan', label: '只读规划', hint: '只阅读代码并给出方案，不做任何修改' },
 ]
 
-function ModePicker({ project }: { project: ProjectDTO }) {
+/** Plain chats work in their own folder: "inside" means that folder. */
+const CHAT_MODES: typeof MODES = [
+  { value: 'ask', label: '每次询问', hint: '修改文件、运行命令前都先确认' },
+  { value: 'auto-edit', label: '自动改文件', hint: '工作目录内的文件修改直接执行，命令仍需确认' },
+  { value: 'auto', label: '全自动', hint: '除危险命令和工作目录外的路径外都直接执行' },
+]
+
+function ModePicker({
+  modes,
+  value,
+  title,
+  onChange,
+}: {
+  modes: typeof MODES
+  value: PermissionMode
+  title: string
+  onChange: (mode: PermissionMode) => void
+}) {
   const [openMenu, setOpenMenu] = useState(false)
   const ref = useDismiss(openMenu, () => setOpenMenu(false))
-  const current = MODES.find((m) => m.value === project.permissionMode) ?? MODES[0]!
+  const current = modes.find((m) => m.value === value) ?? modes[0]!
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
-        title="权限模式（对整个项目生效）"
+        title={title}
         onClick={() => setOpenMenu((v) => !v)}
         className={clsx(
           'flex h-8 items-center gap-1 rounded-lg px-2 text-sm hover:bg-muted',
-          project.permissionMode === 'auto' ? 'text-amber-600 dark:text-amber-400' : 'text-fg-soft',
+          value === 'auto' ? 'text-amber-600 dark:text-amber-400' : 'text-fg-soft',
         )}
       >
         {current.label}
       </button>
       {openMenu && (
-        <div className="absolute bottom-full left-0 z-30 mb-1 w-64 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-xl">
-          {MODES.map((m) => (
+        <div className="absolute bottom-full left-0 z-30 mb-1 w-64 overflow-hidden whitespace-normal rounded-xl border border-line bg-surface py-1 shadow-xl">
+          {modes.map((m) => (
             <button
               key={m.value}
               type="button"
-              onClick={async () => {
+              onClick={() => {
                 setOpenMenu(false)
-                const next = await attempt(() =>
-                  invoke('projects.update', project.id, { permissionMode: m.value }),
-                )
-                if (next) useApp.getState().upsertProject(next)
+                onChange(m.value)
               }}
               className={clsx(
                 'block w-full px-3 py-2 text-left hover:bg-muted',
-                m.value === project.permissionMode && 'bg-muted/60',
+                m.value === value && 'bg-muted/60',
               )}
             >
               <div className="text-sm">{m.label}</div>

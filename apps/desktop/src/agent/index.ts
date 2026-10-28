@@ -52,7 +52,7 @@ interface Run {
   approvals: Map<string, (d: ApprovalDecision, answers?: Record<string, string>) => void>
   /** Read on every tool call, so switching mode applies to the run in progress. */
   mode: PermissionMode
-  /** Pending approvals that would now run without asking, given the current mode. */
+  /** Pending approvals that would now run without asking, given the current mode and approvals. */
   rechecks: Map<string, () => boolean>
 }
 
@@ -296,6 +296,17 @@ async function start(runId: string, req: AgentRunRequest) {
   }
 }
 
+/** Resolve pending approvals that would no longer be asked about. */
+function recheckPending(runId: string, run: Run) {
+  for (const [toolCallId, recheck] of run.rechecks) {
+    const resolve = run.approvals.get(toolCallId)
+    if (!resolve || !recheck()) continue
+    run.approvals.delete(toolCallId)
+    resolve('allow')
+    send({ type: 'run.approval-resolved', runId, toolCallId })
+  }
+}
+
 process.parentPort.on('message', (event) => {
   const msg = event.data as AgentRequest
   switch (msg.type) {
@@ -348,13 +359,7 @@ process.parentPort.on('message', (event) => {
       if (!run) break
       run.mode = msg.mode
       // Let through what the new mode would no longer ask about.
-      for (const [toolCallId, recheck] of run.rechecks) {
-        const resolve = run.approvals.get(toolCallId)
-        if (!resolve || !recheck()) continue
-        run.approvals.delete(toolCallId)
-        resolve('allow')
-        send({ type: 'run.approval-resolved', runId: msg.runId, toolCallId })
-      }
+      recheckPending(msg.runId, run)
       break
     }
     case 'run.approve': {
@@ -363,6 +368,9 @@ process.parentPort.on('message', (event) => {
       if (resolve) {
         run!.approvals.delete(msg.toolCallId)
         resolve(msg.decision, msg.answers)
+        // Parallel calls of the same kind may be waiting too; the loop records the
+        // new "always allow" key once it resumes, so look again after that.
+        if (msg.decision === 'allow-always') setImmediate(() => recheckPending(msg.runId, run!))
       }
       break
     }

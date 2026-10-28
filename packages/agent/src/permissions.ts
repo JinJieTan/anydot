@@ -1,3 +1,4 @@
+import { dirname } from 'node:path'
 import { resolvePath } from './paths'
 import type { AgentTool, ToolKind } from './tools/types'
 
@@ -9,7 +10,15 @@ import type { AgentTool, ToolKind } from './tools/types'
  */
 export type PermissionMode = 'ask' | 'auto-edit' | 'auto' | 'plan'
 
-export type Decision = { action: 'allow' } | { action: 'ask'; reason: string; danger: boolean }
+export type Decision =
+  | { action: 'allow' }
+  | {
+      action: 'ask'
+      reason: string
+      danger: boolean
+      /** Keys "always allow" remembers; defaults to allowKey(tool, input). */
+      remember?: string[]
+    }
 
 const PLAN_KINDS: ToolKind[] = ['read', 'meta', 'network']
 
@@ -122,26 +131,51 @@ export function allowKey(tool: AgentTool<never>, input: Record<string, unknown>)
   return tool.definition.name
 }
 
+/** Key that approves reading (or writing) anywhere under `dir`, outside the project. */
+function dirKey(access: 'read' | 'write', dir: string): string {
+  return `${access}@${dir}`
+}
+
+/** True when an earlier "always allow" covers this outside path; a write approval covers reads too. */
+function outsideAllowed(allowed: Set<string>, abs: string, access: 'read' | 'write'): boolean {
+  for (const key of allowed) {
+    const at = key.indexOf('@')
+    if (at < 0) continue
+    const scope = key.slice(0, at)
+    if (scope !== 'write' && scope !== access) continue
+    if (resolvePath(key.slice(at + 1), abs).inside) return true
+  }
+  return false
+}
+
 export function decide(
   tool: AgentTool<never>,
   input: Record<string, unknown>,
   ctx: { cwd: string; mode: PermissionMode; allowed: Set<string>; sandboxed?: boolean },
 ): Decision {
   const t = tool as AgentTool<Record<string, unknown>>
-  const outside = (t.paths?.(input) ?? []).filter((p) => !resolvePath(ctx.cwd, p).inside)
-
-  if (outside.length) {
-    return {
-      action: 'ask',
-      reason: `访问项目目录以外的路径：${outside.join(', ')}`,
-      danger: tool.kind === 'write',
-    }
-  }
 
   // The mode can switch to plan mid-run, after the full toolset was offered.
   if (ctx.mode === 'plan' && !PLAN_KINDS.includes(tool.kind)) {
     return { action: 'ask', reason: '当前是只读规划模式', danger: false }
   }
+
+  const access = tool.kind === 'write' || tool.kind === 'image' ? 'write' : 'read'
+  const outside = (t.paths?.(input) ?? [])
+    .map((p) => resolvePath(ctx.cwd, p))
+    .filter((r) => !r.inside)
+  const pending = outside.filter((r) => !outsideAllowed(ctx.allowed, r.abs, access))
+  if (pending.length) {
+    return {
+      action: 'ask',
+      reason: `访问项目目录以外的路径：${pending.map((r) => r.abs).join(', ')}`,
+      danger: false,
+      // "Always allow" approves the folder, not just this one file.
+      remember: pending.map((r) => dirKey(access, dirname(r.abs))),
+    }
+  }
+  // Reading or writing a folder the user already approved needs nothing more.
+  if (outside.length && (tool.kind === 'read' || tool.kind === 'write')) return { action: 'allow' }
 
   if (tool.kind === 'exec') {
     const command = String(input.command ?? '')

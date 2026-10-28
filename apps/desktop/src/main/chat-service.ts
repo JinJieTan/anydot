@@ -30,9 +30,9 @@ const TITLE_MAX = 40
 /** Where a request came from: this desktop or a paired phone. */
 export type Origin = 'local' | 'remote'
 
-/** The mode a run actually uses: the project's, the same from a phone as here. */
-function runMode(project: ProjectRow | undefined): PermissionMode {
-  return project?.permissionMode ?? 'ask'
+/** The mode a run actually uses, the same from a phone as here: the project's, or the plain-chat setting. */
+function runMode(project: ProjectRow | undefined, settings: Settings): PermissionMode {
+  return project?.permissionMode ?? settings.chatPermissionMode
 }
 
 interface ActiveRun {
@@ -171,7 +171,13 @@ export class ChatService {
   projectModeChanged(projectId: string): void {
     const project = this.store.getProject(projectId)
     for (const run of this.runs.values())
-      if (run.projectId === projectId) run.handle?.setMode(runMode(project))
+      if (run.projectId === projectId) run.handle?.setMode(runMode(project, this.settings()))
+  }
+
+  /** Apply the new plain-chat permission mode to chats in progress. */
+  chatModeChanged(): void {
+    for (const run of this.runs.values())
+      if (!run.projectId) run.handle?.setMode(runMode(undefined, this.settings()))
   }
 
   switchBranch(conversationId: string, messageId: string): ConversationRow {
@@ -457,7 +463,7 @@ export class ChatService {
             conversationId,
             cwd,
             workspace: !project,
-            mode: runMode(project),
+            mode: runMode(project, this.settings()),
             projectName: project?.name ?? '',
             projectInstructions: project?.instructions ?? null,
             userSystemPrompt: conv.systemPrompt,

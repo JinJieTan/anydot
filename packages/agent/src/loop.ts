@@ -410,7 +410,8 @@ async function executeCall(
     if (ctx.signal.aborted) return { output: ABORTED, isError: true }
     if (answer === 'deny') return { output: DENIED, isError: true }
     // Dangerous commands are never remembered: each one is confirmed on its own.
-    if (answer === 'allow-always' && !decision.danger) allowed.add(allowKey(tool, input))
+    if (answer === 'allow-always' && !decision.danger)
+      for (const key of decision.remember ?? [allowKey(tool, input)]) allowed.add(key)
   }
 
   try {

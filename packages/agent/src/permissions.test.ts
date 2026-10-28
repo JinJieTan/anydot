@@ -54,7 +54,30 @@ describe('decide', () => {
     expect(decide(T(editFileTool), { path: 'a.ts' }, ctx('auto-edit'))).toEqual({ action: 'allow' })
     expect(decide(T(writeFileTool), { path: '/etc/hosts' }, ctx('auto'))).toMatchObject({
       action: 'ask',
-      danger: true,
+    })
+  })
+
+  it('"always allow" outside the project covers the folder', () => {
+    const root = process.platform === 'win32' ? 'C:\\data' : '/data'
+    const file = (name: string) =>
+      process.platform === 'win32' ? `${root}\\${name}` : `${root}/${name}`
+    const first = decide(T(readFileTool), { path: file('a.txt') }, ctx('auto'))
+    expect(first).toMatchObject({ action: 'ask', danger: false, remember: [`read@${root}`] })
+    const allowed = new Set(first.action === 'ask' ? first.remember : [])
+    expect(decide(T(readFileTool), { path: file('b.txt') }, ctx('ask', allowed))).toEqual({
+      action: 'allow',
+    })
+    // A read approval does not let writes through, but a write approval covers reads.
+    expect(decide(T(writeFileTool), { path: file('b.txt') }, ctx('auto', allowed))).toMatchObject({
+      action: 'ask',
+      remember: [`write@${root}`],
+    })
+    const writes = new Set([`write@${root}`])
+    expect(decide(T(writeFileTool), { path: file('c.txt') }, ctx('ask', writes))).toEqual({
+      action: 'allow',
+    })
+    expect(decide(T(readFileTool), { path: file('c.txt') }, ctx('ask', writes))).toEqual({
+      action: 'allow',
     })
   })
 

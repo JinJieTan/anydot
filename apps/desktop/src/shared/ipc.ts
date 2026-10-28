@@ -126,6 +126,8 @@ export interface Settings {
   trayIcon: boolean
   /** Global shortcut that brings up a new chat (Electron accelerator); empty: off. */
   globalShortcut: string
+  /** Permission mode for plain chats (projects keep their own). */
+  chatPermissionMode: PermissionMode
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -143,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   projectHooks: false,
   trayIcon: true,
   globalShortcut: '',
+  chatPermissionMode: 'ask',
 }
 
 export interface FileChangeDTO {
