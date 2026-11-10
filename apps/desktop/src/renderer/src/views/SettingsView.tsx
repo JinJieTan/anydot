@@ -11,7 +11,7 @@ import { SchedulesTab } from '../components/Schedules'
 import { SkillsTab } from '../components/Skills'
 import { UpdateCheck } from '../components/Updates'
 import { Badge, Button, Field, IconButton, Input, Select, Spinner, Toggle } from '../components/ui'
-import { invoke, isMac } from '../lib/api'
+import { api, invoke, isMac, isWeb } from '../lib/api'
 import { attempt, succeeded, useApp } from '../store/app'
 
 type Tab =
@@ -25,34 +25,35 @@ type Tab =
   | 'data'
   | 'about'
 
-const TABS: { id: Tab; label: string }[] = [
+const ALL_TABS: { id: Tab; label: string; desktopOnly?: true }[] = [
   { id: 'providers', label: '服务商与模型' },
-  { id: 'mcp', label: 'MCP 工具' },
-  { id: 'skills', label: '技能与命令' },
-  { id: 'automation', label: 'Agent 能力' },
-  { id: 'schedules', label: '定时任务' },
-  { id: 'remote', label: '手机连接' },
+  { id: 'mcp', label: 'MCP 工具', desktopOnly: true },
+  { id: 'skills', label: '技能与命令', desktopOnly: true },
+  { id: 'automation', label: 'Agent 能力', desktopOnly: true },
+  { id: 'schedules', label: '定时任务', desktopOnly: true },
+  { id: 'remote', label: '手机连接', desktopOnly: true },
   { id: 'general', label: '通用' },
   { id: 'data', label: '数据' },
   { id: 'about', label: '关于' },
 ]
+const TABS = ALL_TABS.filter((t) => !(isWeb && t.desktopOnly))
 
 export function SettingsView() {
   const [tab, setTab] = useState<Tab>('providers')
   return (
     <div className="flex h-full flex-col">
-      <header className="drag flex h-12 shrink-0 items-center border-b border-line px-4">
+      <header className="drag flex h-12 shrink-0 items-center border-b border-line px-4 max-md:pl-14">
         <h1 className="text-sm font-medium">设置</h1>
       </header>
-      <div className="flex min-h-0 flex-1">
-        <nav className="w-44 shrink-0 space-y-0.5 border-r border-line p-2">
+      <div className="flex min-h-0 flex-1 max-md:flex-col">
+        <nav className="w-44 shrink-0 space-y-0.5 border-r border-line p-2 max-md:flex max-md:w-full max-md:gap-1 max-md:space-y-0 max-md:overflow-x-auto max-md:border-r-0 max-md:border-b">
           {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
               className={clsx(
-                'flex h-8 w-full items-center rounded-lg px-3 text-sm',
+                'flex h-8 w-full items-center rounded-lg px-3 text-sm max-md:w-auto max-md:shrink-0',
                 tab === t.id
                   ? 'bg-muted font-medium'
                   : 'text-fg-soft hover:bg-muted/70 hover:text-fg',
@@ -80,6 +81,10 @@ export function SettingsView() {
 
 // ── providers ────────────────────────────────────────────────
 
+const KEY_NOTE = isWeb
+  ? 'Key 加密保存在这个浏览器里，请求直接从浏览器发往服务商。'
+  : 'Key 使用系统钥匙串加密保存在本机。'
+
 const TYPE_LABEL: Record<ProviderType, string> = {
   auto: '自动识别（推荐）',
   openai: 'OpenAI 兼容',
@@ -98,8 +103,8 @@ function ProvidersTab() {
   const current = providers.find((p) => p.id === selected)
 
   return (
-    <div className="flex h-full">
-      <div className="w-56 shrink-0 space-y-0.5 border-r border-line p-2">
+    <div className="flex h-full max-md:h-auto max-md:flex-col">
+      <div className="w-56 shrink-0 space-y-0.5 border-r border-line p-2 max-md:w-full max-md:border-r-0 max-md:border-b">
         {providers.map((p) => (
           <button
             key={p.id}
@@ -136,7 +141,7 @@ function ProvidersTab() {
           添加服务商
         </button>
       </div>
-      <div className="min-w-0 flex-1 overflow-y-auto p-6">
+      <div className="min-w-0 flex-1 overflow-y-auto p-6 max-md:overflow-visible max-md:p-4">
         {selected === 'new' ? (
           <ProviderForm key="new" onSaved={(p) => setSelected(p.id)} />
         ) : current ? (
@@ -150,6 +155,9 @@ function ProvidersTab() {
   )
 }
 
+/** The web build suggests our own gateway when adding a provider. */
+const WEB_DEFAULT_BASE_URL = 'https://aitechflux.com/v1'
+
 function ProviderForm({
   provider,
   onSaved,
@@ -159,7 +167,7 @@ function ProviderForm({
 }) {
   const { notify } = useApp()
   const [name, setName] = useState(provider?.name ?? '')
-  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? (isWeb ? WEB_DEFAULT_BASE_URL : ''))
   const [apiKey, setApiKey] = useState('')
   const [type, setType] = useState<ProviderType>(provider?.type ?? 'auto')
   const [saving, setSaving] = useState(false)
@@ -240,8 +248,8 @@ function ProviderForm({
           label="API Key"
           hint={
             provider?.hasKey
-              ? `已保存（${provider.keyHint}），留空表示不修改。Key 使用系统钥匙串加密保存在本机。`
-              : 'Key 使用系统钥匙串加密保存在本机，不会上传。'
+              ? `已保存（${provider.keyHint}），留空表示不修改。${KEY_NOTE}`
+              : `${KEY_NOTE.slice(0, -1)}，不会上传。`
           }
         >
           <Input
@@ -353,7 +361,14 @@ function ModelList({ provider }: { provider: ProviderDTO }) {
   const [newModel, setNewModel] = useState('')
 
   const reload = () => void invoke('models.list', provider.id).then(setModels)
-  useEffect(reload, [provider.id])
+  useEffect(() => {
+    const load = () => void invoke('models.list', provider.id).then(setModels)
+    load()
+    // A new provider's models arrive after this list first loads (the form syncs them).
+    return api.on('invalidate', ({ scope }) => {
+      if (scope === 'models' || scope === 'all') load()
+    })
+  }, [provider.id])
 
   const visible = useMemo(
     () =>
@@ -370,13 +385,13 @@ function ModelList({ provider }: { provider: ProviderDTO }) {
   return (
     <section>
       <div className="mb-3 flex items-center gap-2">
-        <h3 className="text-sm font-semibold">模型</h3>
-        <span className="text-xs text-fg-faint">
+        <h3 className="shrink-0 text-sm font-semibold">模型</h3>
+        <span className="shrink-0 text-xs text-fg-faint">
           {models ? `${models.filter((m) => m.enabled).length} / ${models.length} 已启用` : ''}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <Input
-            className="h-8 w-44"
+            className="h-8 w-44 max-md:w-24"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="筛选"
@@ -414,7 +429,7 @@ function ModelList({ provider }: { provider: ProviderDTO }) {
                 }}
               />
               <span>{filter ? '筛选结果' : '全部'}</span>
-              <span className="ml-auto w-40">协议</span>
+              <span className="ml-auto w-40 max-md:w-24">协议</span>
               <span className="w-8" />
             </div>
           )}
@@ -458,7 +473,7 @@ function ModelList({ provider }: { provider: ProviderDTO }) {
                   </div>
                 </div>
                 <Select
-                  className="h-8 w-40 shrink-0 text-xs"
+                  className="h-8 w-40 shrink-0 text-xs max-md:w-24"
                   value={m.protocol ?? ''}
                   onChange={(e) =>
                     void patch(m, { protocol: (e.target.value || null) as Protocol | null })
@@ -622,36 +637,54 @@ function GeneralTab() {
           <option value="dark">深色</option>
         </Select>
       </Field>
-      <Field
-        label="全局快捷键"
-        hint="默认关闭。开启后在任何应用中按下即可打开 AnyDot 并新建对话，AnyDot 在前台时再按一次会隐藏"
-      >
-        <ShortcutInput
-          value={settings.globalShortcut}
-          onChange={(globalShortcut) => void succeeded(() => updateSettings({ globalShortcut }))}
-        />
-      </Field>
-      <Field
-        label={isMac ? '菜单栏图标' : '托盘图标'}
-        hint={
-          isMac
-            ? '在菜单栏显示图标，可以快速新建对话'
-            : '在托盘显示图标；开启时关闭窗口后 AnyDot 继续在后台运行（定时任务、手机连接）'
-        }
-      >
-        <Toggle
-          checked={settings.trayIcon}
-          label="显示图标"
-          onChange={(trayIcon) => void succeeded(() => updateSettings({ trayIcon }))}
-        />
-      </Field>
-      <Field label="系统通知" hint="窗口不在前台时，任务完成、出错或需要确认会弹出系统通知">
-        <Toggle
-          checked={settings.notifications}
-          label="开启系统通知"
-          onChange={(notifications) => set({ notifications })}
-        />
-      </Field>
+      {!isWeb && (
+        <>
+          <Field
+            label="全局快捷键"
+            hint="默认关闭。开启后在任何应用中按下即可打开 AnyDot 并新建对话，AnyDot 在前台时再按一次会隐藏"
+          >
+            <ShortcutInput
+              value={settings.globalShortcut}
+              onChange={(globalShortcut) =>
+                void succeeded(() => updateSettings({ globalShortcut }))
+              }
+            />
+          </Field>
+          <Field
+            label={isMac ? '菜单栏图标' : '托盘图标'}
+            hint={
+              isMac
+                ? '在菜单栏显示图标，可以快速新建对话'
+                : '在托盘显示图标；开启时关闭窗口后 AnyDot 继续在后台运行（定时任务、手机连接）'
+            }
+          >
+            <Toggle
+              checked={settings.trayIcon}
+              label="显示图标"
+              onChange={(trayIcon) => void succeeded(() => updateSettings({ trayIcon }))}
+            />
+          </Field>
+          <Field label="系统通知" hint="窗口不在前台时，任务完成、出错或需要确认会弹出系统通知">
+            <Toggle
+              checked={settings.notifications}
+              label="开启系统通知"
+              onChange={(notifications) => set({ notifications })}
+            />
+          </Field>
+        </>
+      )}
+      {isWeb && (
+        <Field
+          label="API Key"
+          hint="开启后，关闭或刷新页面时会忘记所有服务商的 Key，下次打开需要重新填写。适合在公用电脑上使用。"
+        >
+          <Toggle
+            checked={settings.webForgetKeys}
+            label="关闭页面后忘记 Key"
+            onChange={(webForgetKeys) => void succeeded(() => updateSettings({ webForgetKeys }))}
+          />
+        </Field>
+      )}
       <Field label="默认对话模型" hint="新对话默认使用的模型">
         <Select
           value={settings.defaultModelId ?? ''}
@@ -706,7 +739,9 @@ function DataTab() {
       <section>
         <h2 className="text-sm font-semibold">备份与迁移</h2>
         <p className="mt-1 text-sm leading-relaxed text-fg-soft">
-          所有对话和图片只保存在本机。导出的 zip 包含对话、生图记录和图片，可以在另一台电脑上导入。
+          {isWeb
+            ? '所有对话和图片只保存在这个浏览器里，清除网站数据会一并删除，建议定期导出。导出的 zip 与桌面端通用，可以互相导入。'
+            : '所有对话和图片只保存在本机。导出的 zip 包含对话、生图记录和图片，可以在另一台电脑上导入。'}
           出于安全考虑，API Key 不会被导出，导入后需要重新填写。
         </p>
         <div className="mt-3 flex gap-2">
@@ -743,9 +778,33 @@ function DataTab() {
         <section>
           <h2 className="text-sm font-semibold">存储位置</h2>
           <p className="mt-1 font-mono text-xs break-all text-fg-soft">{info.db.path}</p>
+          {isWeb && <BrowserStorage />}
         </section>
       )}
     </div>
+  )
+}
+
+/** Web only: how much the browser lets us keep, and whether it may clear it. */
+function BrowserStorage() {
+  const [usage, setUsage] = useState<{ used: number; quota: number; persisted: boolean } | null>(
+    null,
+  )
+  useEffect(() => {
+    void Promise.all([navigator.storage.estimate(), navigator.storage.persisted()]).then(
+      ([e, persisted]) => setUsage({ used: e.usage ?? 0, quota: e.quota ?? 0, persisted }),
+    )
+  }, [])
+  if (!usage) return null
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`
+  return (
+    <p className="mt-2 text-xs leading-relaxed text-fg-soft">
+      已用 {mb(usage.used)}
+      {usage.quota ? `，可用上限约 ${mb(usage.quota)}` : ''}。
+      {usage.persisted
+        ? '浏览器已同意持久保存，空间不足时不会自动清理。'
+        : '浏览器未同意持久保存，空间不足时可能被清理；Safari 在 7 天未访问后也可能清除。'}
+    </p>
   )
 }
 
@@ -760,20 +819,30 @@ function AboutTab() {
         <Spinner />
       </div>
     )
-  const rows: [string, string][] = [
-    ['版本', info.version],
-    ['平台', info.platform],
-    ['Electron', info.versions.electron],
-    ['Node', info.versions.node],
-    ['数据库', `schema v${info.db.schemaVersion}`],
-    ['Key 存储', info.keyStorage === 'os' ? '系统钥匙串加密' : '未加密（系统不支持钥匙串）'],
-    ['日志', info.logs],
-  ]
+  const rows: [string, string][] = isWeb
+    ? [
+        ['版本', info.version],
+        ['平台', '网页版'],
+        ['浏览器', info.versions.chrome],
+        ['数据库', `SQLite WASM，schema v${info.db.schemaVersion}`],
+        ['Key 存储', '浏览器本地加密（密钥不可导出）'],
+      ]
+    : [
+        ['版本', info.version],
+        ['平台', info.platform],
+        ['Electron', info.versions.electron],
+        ['Node', info.versions.node],
+        ['数据库', `schema v${info.db.schemaVersion}`],
+        ['Key 存储', info.keyStorage === 'os' ? '系统钥匙串加密' : '未加密（系统不支持钥匙串）'],
+        ['日志', info.logs],
+      ]
   return (
     <div className="max-w-xl p-6">
       <h2 className="text-base font-semibold">AnyDot</h2>
       <p className="mt-1 text-sm text-fg-soft">
-        开源 AI 桌面客户端：填入 Base URL 和 Key，使用 GPT、Claude 与 gpt-image。
+        {isWeb
+          ? '网页版：填入 Base URL 和 Key，在浏览器里使用 GPT、Claude、gpt-image 和视频模型。写代码、操作电脑等能力请下载桌面端。'
+          : '开源 AI 桌面客户端：填入 Base URL 和 Key，使用 GPT、Claude 与 gpt-image。'}
       </p>
       <dl className="mt-5 grid grid-cols-[7rem_1fr] gap-y-2 text-sm">
         {rows.map(([k, v]) => (
@@ -783,14 +852,29 @@ function AboutTab() {
           </div>
         ))}
       </dl>
-      <div className="mt-5">
-        <UpdateCheck />
-      </div>
-      <div className="mt-3">
-        <Button size="sm" onClick={() => void invoke('app.revealLogs')}>
-          打开日志文件夹
-        </Button>
-      </div>
+      {isWeb ? (
+        <div className="mt-5">
+          <a
+            href="https://anydot.app"
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-accent hover:underline"
+          >
+            下载桌面端
+          </a>
+        </div>
+      ) : (
+        <>
+          <div className="mt-5">
+            <UpdateCheck />
+          </div>
+          <div className="mt-3">
+            <Button size="sm" onClick={() => void invoke('app.revealLogs')}>
+              打开日志文件夹
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

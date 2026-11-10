@@ -31,7 +31,11 @@ const api = {
     return () => ipcRenderer.removeListener(channel, listener)
   },
 
-  platform: process.platform,
+  /** URL the renderer can load a stored blob from (served by the main process). */
+  blobUrl: (sha256: string) => `aitech-blob://blob/${sha256}`,
+
+  /** 'web' in the browser build (apps/web), which provides its own `api`. */
+  platform: process.platform as NodeJS.Platform | 'web',
 }
 
 export type Api = typeof api

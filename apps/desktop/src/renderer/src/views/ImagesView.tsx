@@ -109,12 +109,12 @@ export function ImagesView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag flex h-12 shrink-0 items-center border-b border-line px-4">
+      <header className="drag flex h-12 shrink-0 items-center border-b border-line px-4 max-md:pl-14">
         <h1 className="text-sm font-medium">生图 / 视频</h1>
       </header>
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 max-md:flex-col max-md:overflow-y-auto">
         {/* ── form ── */}
-        <div className="w-80 shrink-0 space-y-4 overflow-y-auto border-r border-line p-4">
+        <div className="w-80 shrink-0 space-y-4 overflow-y-auto border-r border-line p-4 max-md:w-full max-md:overflow-visible max-md:border-r-0 max-md:border-b">
           {imageModels.length === 0 ? (
             <div className="rounded-xl border border-line p-4 text-sm text-fg-soft">
               还没有可用的生图模型（如 gpt-image-2）。
@@ -291,7 +291,7 @@ export function ImagesView() {
         </div>
 
         {/* ── gallery ── */}
-        <div className="min-w-0 flex-1 overflow-y-auto p-6">
+        <div className="min-w-0 flex-1 overflow-y-auto p-6 max-md:overflow-visible max-md:p-4">
           {jobs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-sm text-fg-faint">
               <Wand2 className="mb-3 size-8" />

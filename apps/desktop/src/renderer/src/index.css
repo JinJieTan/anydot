@@ -21,8 +21,12 @@
   --code-bg: #f0eee6;
 }
 
+/*
+ * Dark palette. Desktop follows prefers-color-scheme (main sets nativeTheme);
+ * the web app can't change that query, so it sets data-theme on <html> instead.
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --canvas: #1f1e1c;
     --surface: #262624;
     --muted: #31302d;
@@ -34,6 +38,36 @@
     --accent: #d97757;
     --accent-strong: #e38b6d;
     --code-bg: #1c1b19;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #1f1e1c;
+  --surface: #262624;
+  --muted: #31302d;
+  --line: #393834;
+  --line-strong: #4d4b46;
+  --fg: #f3f1ea;
+  --fg-soft: #c2c0b6;
+  --fg-faint: #8f8c84;
+  --accent: #d97757;
+  --accent-strong: #e38b6d;
+  --code-bg: #1c1b19;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']) *) {
+      @slot;
+    }
+  }
+  &:where([data-theme='dark'] *) {
+    @slot;
   }
 }
 

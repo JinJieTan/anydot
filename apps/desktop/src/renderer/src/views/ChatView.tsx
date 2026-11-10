@@ -16,7 +16,7 @@ import {
   Textarea,
   useDismiss,
 } from '../components/ui'
-import { invoke, isMac } from '../lib/api'
+import { invoke, isMac, isWeb } from '../lib/api'
 import { useArtifact } from '../lib/artifact'
 import { activePath, siblingsOf } from '../lib/tree'
 import { attempt, succeeded, useApp } from '../store/app'
@@ -117,14 +117,17 @@ export function ChatView() {
           }}
         />
       ) : (
-        <ModePicker
-          modes={CHAT_MODES}
-          value={settings.chatPermissionMode}
-          title="权限模式（对所有普通对话生效）"
-          onChange={(chatPermissionMode) =>
-            void useApp.getState().updateSettings({ chatPermissionMode })
-          }
-        />
+        // Plain chats on the web have no tools, so there is nothing to permit.
+        !isWeb && (
+          <ModePicker
+            modes={CHAT_MODES}
+            value={settings.chatPermissionMode}
+            title="权限模式（对所有普通对话生效）"
+            onChange={(chatPermissionMode) =>
+              void useApp.getState().updateSettings({ chatPermissionMode })
+            }
+          />
+        )
       )}
     </>
   )
@@ -148,7 +151,7 @@ export function ChatView() {
     return (
       <div className="flex h-full flex-col">
         <div className="drag h-12 shrink-0" />
-        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-24">
+        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-24 max-md:px-3">
           <div className="w-full max-w-2xl">
             <div className="mb-8 flex flex-col items-center text-center">
               <LogoMark className="mb-4 size-11 text-fg" />
@@ -219,7 +222,7 @@ export function ChatView() {
     <div className="flex h-full flex-col">
       <header
         className={clsx(
-          'drag flex h-12 shrink-0 items-center gap-2 border-b border-line px-4',
+          'drag flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:pl-14',
           isMac && 'pl-4',
         )}
       >
@@ -267,14 +270,16 @@ export function ChatView() {
             <FolderOpen className="size-4" />
           </IconButton>
         ) : (
-          <IconButton
-            label="打开工作文件夹"
-            onClick={() =>
-              void attempt(() => invoke('conversations.revealWorkspace', conversation.id))
-            }
-          >
-            <FolderOpen className="size-4" />
-          </IconButton>
+          !isWeb && (
+            <IconButton
+              label="打开工作文件夹"
+              onClick={() =>
+                void attempt(() => invoke('conversations.revealWorkspace', conversation.id))
+              }
+            >
+              <FolderOpen className="size-4" />
+            </IconButton>
+          )
         )}
         <IconButton label="对话设置" onClick={() => setShowSettings(true)}>
           <Settings2 className="size-4" />
@@ -283,7 +288,7 @@ export function ChatView() {
 
       <MessageList conversation={conversation} path={path} busy={isRunning} />
 
-      <div className="shrink-0 px-6 pb-5">
+      <div className="shrink-0 px-6 pb-5 max-md:px-3 max-md:pb-3">
         <div className="mx-auto max-w-3xl">{composer}</div>
       </div>
 
@@ -497,7 +502,7 @@ function MessageList({
 
   return (
     <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-3xl px-6 py-8 max-md:px-4">
         {path.map((m, i) => {
           if (m.role === 'system') {
             const summary = m.parts.find((p) => p.type === 'summary')

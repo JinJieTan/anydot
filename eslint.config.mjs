@@ -21,6 +21,10 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser, ...globals.worker } },
+  },
+  {
     files: ['apps/desktop/chrome-extension/**/*.js'],
     languageOptions: {
       globals: { ...globals.browser, ...globals.serviceworker, chrome: 'readonly' },

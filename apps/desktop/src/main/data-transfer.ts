@@ -1,8 +1,15 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate'
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
-import type { BlobStore } from './blobs'
+import type { SqlDatabase, SqlValue } from '@aitech/db'
+
+/** Blob access the backup needs; also implemented by the web app's OPFS store. */
+export interface BlobFiles {
+  read(sha256: string): Promise<Uint8Array>
+  put(data: Uint8Array, mime: string): Promise<string>
+}
 
 /**
+ * Runs in the web app's worker too, so no Node or Electron imports here.
+ *
  * Backup format: a zip with data.json (rows, keys stripped) and blobs/<sha256>.
  * Import is additive and idempotent: rows are inserted by primary key and
  * existing ids are left untouched, so importing the same file twice is safe.
@@ -20,7 +27,7 @@ const TABLES = [
 ] as const
 type Table = (typeof TABLES)[number]
 
-type Row = Record<string, SQLInputValue>
+type Row = Record<string, SqlValue>
 
 interface ExportData {
   format: typeof FORMAT
@@ -31,7 +38,7 @@ interface ExportData {
   blobs: { sha256: string; mime: string; size: number; created_at: number }[]
 }
 
-export async function exportData(db: DatabaseSync, blobs: BlobStore): Promise<Uint8Array> {
+export async function exportData(db: SqlDatabase, blobs: BlobFiles): Promise<Uint8Array> {
   const tables = {} as Record<Table, Row[]>
   for (const t of TABLES) {
     const rows = db.prepare(`SELECT * FROM ${t} WHERE deleted_at IS NULL`).all() as Row[]
@@ -73,8 +80,8 @@ export interface ImportCounts {
 }
 
 export async function importData(
-  db: DatabaseSync,
-  blobs: BlobStore,
+  db: SqlDatabase,
+  blobs: BlobFiles,
   zip: Uint8Array,
 ): Promise<ImportCounts> {
   const files = unzipSync(zip)

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { Menu } from 'lucide-react'
 import { useCallback, useEffect } from 'react'
 import { ArtifactPanel } from './components/ArtifactPanel'
 import { ChangesPanel } from './components/ChangesPanel'
@@ -16,6 +17,7 @@ import { SettingsView } from './views/SettingsView'
 export function App() {
   const { view, loadConversations, loadModels, loadProviders, loadProjects, loadSettings, toast } =
     useApp()
+  const sidebarOpen = useApp((s) => s.sidebarOpen)
 
   useEffect(() => {
     void loadSettings()
@@ -109,6 +111,22 @@ export function App() {
 
   return (
     <div className="flex h-full">
+      {/* Narrow screens: the sidebar opens as a drawer from this button. */}
+      <button
+        type="button"
+        aria-label="打开侧栏"
+        onClick={() => useApp.getState().setSidebarOpen(true)}
+        className="fixed top-1.5 left-2 z-20 rounded-lg p-2 text-fg-soft hover:bg-muted hover:text-fg md:hidden"
+      >
+        <Menu className="size-5" />
+      </button>
+      {sidebarOpen && (
+        <div
+          aria-hidden
+          onClick={() => useApp.getState().setSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-black/30 md:hidden"
+        />
+      )}
       <Sidebar
         onNewChat={() => void newChat()}
         onNewTask={(id) => void newChat(id)}

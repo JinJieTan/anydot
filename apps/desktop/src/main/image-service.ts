@@ -8,8 +8,13 @@ import {
 } from '@aitech/core'
 import type { ImageJobRow, Store } from '@aitech/db'
 import type { ImageGenerateInput } from '../shared/ipc'
-import type { BlobStore } from './blobs'
-import { decryptKey } from './secrets'
+
+/** Blob access the service needs; BlobStore here, the OPFS store in the web app. */
+export interface MediaBlobs {
+  read(sha256: string): Promise<Uint8Array>
+  put(data: Uint8Array, mime: string): Promise<string>
+  mime(sha256: string): string
+}
 
 const EXT: Record<string, string> = {
   'image/png': 'png',
@@ -17,22 +22,27 @@ const EXT: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-/** Image and video generation jobs. Video jobs survive restarts by remote id. */
+/**
+ * Image and video generation jobs. Video jobs survive restarts by remote id.
+ * Runs in the web app's worker too, so no Node or Electron imports here.
+ */
 export class ImageService {
   private controllers = new Map<string, AbortController>()
   private quitting = false
 
   constructor(
     private readonly store: Store,
-    private readonly blobs: BlobStore,
+    private readonly blobs: MediaBlobs,
     private readonly emit: (job: ImageJobRow) => void,
+    /** A provider's stored key_ref → its API key. */
+    private readonly decryptKey: (keyRef: string | null) => string | null | Promise<string | null>,
   ) {}
 
-  private credentials(modelRowId: string) {
+  private async credentials(modelRowId: string) {
     const model = this.store.getModel(modelRowId)
     if (!model) throw new Error('模型不存在')
     const provider = this.store.getProvider(model.providerId)
-    const apiKey = provider && decryptKey(provider.keyRef)
+    const apiKey = provider && (await this.decryptKey(provider.keyRef))
     if (!provider || !apiKey) throw new Error('服务商未配置 Key')
     return {
       model,
@@ -40,11 +50,11 @@ export class ImageService {
     }
   }
 
-  /** Create a job and run it in the background. Returns immediately. */
-  generate(input: ImageGenerateInput): ImageJobRow {
+  /** Create a job and run it in the background. Returns once the job is saved. */
+  async generate(input: ImageGenerateInput): Promise<ImageJobRow> {
     const prompt = input.prompt.trim()
     if (!prompt) throw new Error('请输入提示词')
-    const { model, creds } = this.credentials(input.modelId)
+    const { model, creds } = await this.credentials(input.modelId)
     const isVideo = model.capabilities.includes('video')
 
     const job = this.store.createImageJob({
@@ -63,14 +73,14 @@ export class ImageService {
   }
 
   /** Resume polling video jobs left running when the app last quit. */
-  resume(): void {
+  async resume(): Promise<void> {
     for (const job of this.store.resumableVideoJobs()) {
       const row = this.store
         .listModels()
         .find((m) => m.modelId === job.modelId && m.capabilities.includes('video'))
       let creds: ProviderCredentials
       try {
-        creds = this.credentials(row?.id ?? '').creds
+        creds = (await this.credentials(row?.id ?? '')).creds
       } catch (err) {
         this.emit(
           this.store.finishImageJob(job.id, { status: 'error', error: (err as Error).message }),

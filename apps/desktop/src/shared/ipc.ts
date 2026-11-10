@@ -32,7 +32,8 @@ export interface AppInfo {
   platform: string
   versions: { electron: string; chrome: string; node: string }
   db: { path: string; schemaVersion: number }
-  keyStorage: 'os' | 'plain'
+  /** browser: the web app, encrypted with a non-extractable key kept by the browser. */
+  keyStorage: 'os' | 'plain' | 'browser'
   /** Folder with the app's log files. */
   logs: string
 }
@@ -128,6 +129,8 @@ export interface Settings {
   globalShortcut: string
   /** Permission mode for plain chats (projects keep their own). */
   chatPermissionMode: PermissionMode
+  /** Web app only: don't keep the key that encrypts API keys, so they are forgotten when the tab closes. */
+  webForgetKeys: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -146,6 +149,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trayIcon: true,
   globalShortcut: '',
   chatPermissionMode: 'ask',
+  webForgetKeys: false,
 }
 
 export interface FileChangeDTO {

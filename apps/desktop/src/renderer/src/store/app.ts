@@ -9,7 +9,7 @@ import type {
   Settings,
 } from '../../../shared/ipc'
 import { DEFAULT_SETTINGS } from '../../../shared/ipc'
-import { invoke } from '../lib/api'
+import { invoke, isWeb } from '../lib/api'
 
 export type View = 'chat' | 'images' | 'settings'
 /** Which sidebar tab is showing: plain chats (plus image/video) or project-scoped coding tasks. */
@@ -17,6 +17,8 @@ export type Mode = 'chat' | 'code'
 
 const MODE_KEY = 'sidebar-mode'
 function initialMode(): Mode {
+  // The web app has no Code mode (it needs local project folders).
+  if (isWeb) return 'chat'
   try {
     return localStorage.getItem(MODE_KEY) === 'code' ? 'code' : 'chat'
   } catch {
@@ -38,8 +40,11 @@ interface AppState {
   settings: Settings
   running: Set<string>
   toast: { id: number; text: string; kind: 'info' | 'error' } | null
+  /** Narrow screens (web on a phone): the sidebar is a drawer, open or closed. */
+  sidebarOpen: boolean
 
   setView: (view: View) => void
+  setSidebarOpen: (open: boolean) => void
   setMode: (mode: Mode) => void
   open: (id: string | null) => void
   setSearch: (q: string) => void
@@ -84,9 +89,11 @@ export const useApp = create<AppState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   running: new Set(),
   toast: null,
+  sidebarOpen: false,
 
+  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setView: (view) => {
-    set({ view })
+    set({ view, sidebarOpen: false })
     if (view === 'images') rememberMode('chat')
   },
   setMode: (mode) => {
@@ -101,7 +108,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({ activeId: (last ?? conversations.find(inMode))?.id ?? null })
   },
   open: (id) => {
-    set({ activeId: id, view: 'chat' })
+    set({ activeId: id, view: 'chat', sidebarOpen: false })
     const c = id ? get().conversations.find((x) => x.id === id) : undefined
     if (c) {
       const mode = c.projectId ? 'code' : 'chat'

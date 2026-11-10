@@ -1,22 +1,24 @@
 import clsx from 'clsx'
 import { Code2, ExternalLink, Eye, RotateCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { invoke } from '../lib/api'
+import { invoke, isWeb } from '../lib/api'
 import { artifactPage, useArtifact } from '../lib/artifact'
-import { attempt } from '../store/app'
+import { attempt, useApp } from '../store/app'
 import { CopyButton, Markdown } from './Markdown'
 
 const btn = 'rounded-md p-1.5 text-fg-faint hover:bg-muted hover:text-fg'
 
 function useDark() {
   const query = window.matchMedia('(prefers-color-scheme: dark)')
-  const [dark, setDark] = useState(query.matches)
+  const [systemDark, setDark] = useState(query.matches)
   useEffect(() => {
     const on = (e: MediaQueryListEvent) => setDark(e.matches)
     query.addEventListener('change', on)
     return () => query.removeEventListener('change', on)
   }, [query])
-  return dark
+  // The web app picks a theme with data-theme (see index.css); desktop never sets it.
+  const theme = useApp((s) => (isWeb ? s.settings.theme : 'system'))
+  return theme === 'system' ? systemDark : theme === 'dark'
 }
 
 /** Side panel showing an HTML / SVG / Mermaid / Markdown artifact next to the chat. */
@@ -57,7 +59,7 @@ export function ArtifactPanel() {
   }
 
   return (
-    <aside className="flex w-[46%] min-w-[360px] shrink-0 flex-col border-l border-line bg-surface">
+    <aside className="flex w-[46%] min-w-[360px] shrink-0 flex-col border-l border-line bg-surface max-md:fixed max-md:inset-0 max-md:z-30 max-md:w-full max-md:min-w-0 max-md:border-l-0">
       <div className="flex h-12 items-center gap-1 border-b border-line px-3">
         <div className="min-w-0 flex-1 truncate text-sm font-medium" title={artifact.file?.path}>
           {artifact.title}

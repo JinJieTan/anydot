@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, Menu, nativeTheme, protocol, shell } from 'electron'
 import type { BrowserCommand } from '@aitech/agent'
 import { newId } from '@aitech/core'
-import { openDatabase, Store } from '@aitech/db'
+import { openDatabase, Store, type Database } from '@aitech/db'
 import { AgentHost } from './agent-host'
 import { ARTIFACT_SCHEME, ArtifactServer } from './artifacts'
 import { BlobStore } from './blobs'
@@ -26,6 +26,7 @@ import { Notifier } from './notifier'
 import { RemoteService } from './remote-service'
 import { Scheduler } from './scheduler'
 import { ShellIntegration } from './shell-integration'
+import { decryptKey } from './secrets'
 import { Updater } from './updater'
 
 /** Serves local blobs to the renderer as aitech-blob://blob/<sha256>. */
@@ -96,7 +97,7 @@ agent.onHostCall = (method, params) => {
   }
   return Promise.reject(new Error(`unknown host method ${method}`))
 }
-let store: Store | null = null
+let store: Store<Database> | null = null
 let chat: ChatService | null = null
 let images: ImageService | null = null
 let remote: RemoteService | null = null
@@ -180,7 +181,7 @@ function createWindow(): void {
   }
 }
 
-function openStore(dataDir: string): { store: Store; dbPath: string } {
+function openStore(dataDir: string): { store: Store<Database>; dbPath: string } {
   const dbPath = join(dataDir, 'aitech.db')
   const db = openDatabase(dbPath, {
     onBackup: (file) => console.info(`[db] backed up before upgrading: ${file}`),
@@ -279,8 +280,8 @@ if (!app.requestSingleInstanceLock()) {
       },
       join(app.getPath('userData'), 'workspaces'),
     )
-    images = new ImageService(s, blobs, (job) => emit('image', job))
-    images.resume()
+    images = new ImageService(s, blobs, (job) => emit('image', job), decryptKey)
+    void images.resume()
     remote = new RemoteService(
       s,
       chat,

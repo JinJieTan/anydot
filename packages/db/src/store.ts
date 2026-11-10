@@ -10,7 +10,7 @@ import {
   type ThinkingLevel,
   type Usage,
 } from '@aitech/core'
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import type { SqlDatabase, SqlValue } from './sql'
 
 export interface ProviderRow {
   id: string
@@ -134,7 +134,7 @@ export interface ImageJobRow {
   createdAt: number
 }
 
-type Row = Record<string, SQLInputValue>
+type Row = Record<string, SqlValue>
 
 const parse = <T>(s: unknown, fallback: T): T => {
   if (typeof s !== 'string' || !s) return fallback
@@ -149,22 +149,22 @@ const parse = <T>(s: unknown, fallback: T): T => {
  * Typed data access over the local database. Every write stamps
  * updated_at / device_id so a future sync layer can merge by last writer.
  */
-export class Store {
+export class Store<D extends SqlDatabase = SqlDatabase> {
   constructor(
-    readonly db: DatabaseSync,
+    readonly db: D,
     readonly deviceId: string,
     private readonly now: () => number = Date.now,
   ) {}
 
-  private all(sql: string, ...params: SQLInputValue[]): Row[] {
+  private all(sql: string, ...params: SqlValue[]): Row[] {
     return this.db.prepare(sql).all(...params) as Row[]
   }
 
-  private get(sql: string, ...params: SQLInputValue[]): Row | undefined {
+  private get(sql: string, ...params: SqlValue[]): Row | undefined {
     return this.db.prepare(sql).get(...params) as Row | undefined
   }
 
-  private run(sql: string, ...params: SQLInputValue[]) {
+  private run(sql: string, ...params: SqlValue[]) {
     return this.db.prepare(sql).run(...params)
   }
 
@@ -590,7 +590,7 @@ export class Store {
 
   listConversations(opts: { search?: string; projectId?: string | null; limit?: number } = {}) {
     const where = ['c.deleted_at IS NULL']
-    const params: SQLInputValue[] = []
+    const params: SqlValue[] = []
     if (opts.projectId !== undefined) {
       if (opts.projectId === null) where.push('c.project_id IS NULL')
       else {

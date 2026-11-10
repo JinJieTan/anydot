@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8" />
+<!--
+  Runs a model-generated page. Served with a sandboxing CSP (opaque origin, no
+  network), it asks the app for the page by id and replaces itself with it.
+-->
+<script>
+  ;(function () {
+    var host = window.parent !== window ? window.parent : window.opener
+    if (!host) return
+    window.addEventListener('message', function (e) {
+      if (e.source !== host || !e.data || e.data.type !== 'anydot-artifact') return
+      document.open()
+      document.write(e.data.html)
+      document.close()
+    })
+    host.postMessage({ type: 'anydot-artifact-ready', id: location.hash.slice(1) }, '*')
+  })()
+</script>

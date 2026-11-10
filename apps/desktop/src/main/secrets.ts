@@ -31,10 +31,3 @@ export function decryptKey(ref: string | null): string | null {
   if (kind === 'plain') return Buffer.from(data, 'base64').toString('utf8')
   return null
 }
-
-/** "sk-abc…wxyz" for display. Short keys are fully masked. */
-export function keyHint(key: string | null): string | null {
-  if (!key) return null
-  if (key.length <= 10) return '••••'
-  return `${key.slice(0, 3)}…${key.slice(-4)}`
-}

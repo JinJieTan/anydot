@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { ConversationDTO, ProjectDTO } from '../../../shared/ipc'
-import { invoke, isMac } from '../lib/api'
+import { invoke, isMac, isWeb } from '../lib/api'
 import { dayGroup } from '../lib/format'
 import { attempt, succeeded, useApp } from '../store/app'
 import { useChat } from '../store/chat'
@@ -47,6 +47,7 @@ export function Sidebar({
     setView,
     running,
     projects,
+    sidebarOpen,
   } = useApp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -80,34 +81,44 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-canvas">
+    <aside
+      className={clsx(
+        'flex w-72 shrink-0 flex-col border-r border-line bg-canvas',
+        // Below md (only the web app gets this narrow): a drawer over the content.
+        'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-xl max-md:transition-transform',
+        !sidebarOpen && 'max-md:-translate-x-full',
+      )}
+    >
       <div className="drag h-12 shrink-0" />
 
-      <div className="px-3 pb-2">
-        <div className="flex rounded-lg bg-muted/70 p-0.5 text-sm">
-          {(
-            [
-              ['chat', '对话', <MessagesSquare key="i" className="size-3.5" />],
-              ['code', 'Code', <Code2 key="i" className="size-3.5" />],
-            ] as const
-          ).map(([m, label, icon]) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMode(m)}
-              className={clsx(
-                'flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md transition-colors',
-                mode === m
-                  ? 'bg-surface font-medium text-fg shadow-sm'
-                  : 'text-fg-faint hover:text-fg',
-              )}
-            >
-              {icon}
-              {label}
-            </button>
-          ))}
+      {/* Code mode works in local project folders: desktop only. */}
+      {!isWeb && (
+        <div className="px-3 pb-2">
+          <div className="flex rounded-lg bg-muted/70 p-0.5 text-sm">
+            {(
+              [
+                ['chat', '对话', <MessagesSquare key="i" className="size-3.5" />],
+                ['code', 'Code', <Code2 key="i" className="size-3.5" />],
+              ] as const
+            ).map(([m, label, icon]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={clsx(
+                  'flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md transition-colors',
+                  mode === m
+                    ? 'bg-surface font-medium text-fg shadow-sm'
+                    : 'text-fg-faint hover:text-fg',
+                )}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="px-2 pb-1.5">
         <button

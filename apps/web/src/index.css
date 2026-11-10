@@ -1,0 +1,5 @@
+@import '../../desktop/src/renderer/src/index.css';
+
+/* The renderer's components live in apps/desktop: scan them for Tailwind classes. */
+@source '../../desktop/src/renderer/src';
+@source './';

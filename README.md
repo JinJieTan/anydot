@@ -20,6 +20,8 @@
 
 ## 安装
 
+不想安装可以直接用网页版 [anydot.app/app](https://anydot.app/app/)（对话、生图 / 视频、Artifacts；写代码、终端、电脑操作等需要桌面端）。
+
 到官网 [anydot.app](https://anydot.app) 或 [Releases](https://github.com/JinJieTan/anydot/releases) 下载对应系统的安装包：
 
 | 系统                            | 文件                                    |
@@ -100,6 +102,7 @@ MOBILE_DIR=apps/mobile/dist PUBLIC_URL=http://<电脑局域网 IP>:8090 node app
 | 命令                                                      | 说明                 |
 | --------------------------------------------------------- | -------------------- |
 | `pnpm dev`                                                | 启动桌面端（热更新） |
+| `pnpm --filter @aitech/web dev`                           | 启动网页版           |
 | `pnpm test`                                               | 全部单元 / 集成测试  |
 | `pnpm typecheck`                                          | 类型检查             |
 | `pnpm lint` / `pnpm format`                               | 代码检查 / 格式化    |
@@ -113,6 +116,7 @@ MOBILE_DIR=apps/mobile/dist PUBLIC_URL=http://<电脑局域网 IP>:8090 node app
 ```
 apps/desktop       Electron 桌面端（main / preload / renderer / agent 进程）
 apps/mobile        手机端 PWA（React + Vite），由中继托管在 /m/
+apps/web           网页版（anydot.app/app/）：复用桌面端界面，后端是 Web Worker + SQLite WASM
 apps/relay         中继服务（Node，打包为单个文件）
 packages/core      模型适配（Claude / GPT）、生图、视频、模拟网关
 packages/agent     Agent 循环、工具、权限策略、MCP
