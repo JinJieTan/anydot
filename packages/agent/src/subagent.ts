@@ -36,7 +36,7 @@ export function createSubagent(base: {
       ctx: { ...base.ctx, readFiles: new Map(), subagent: undefined },
       mode: base.mode,
       allowed: base.allowed,
-      maxSteps: base.maxSteps ?? 40,
+      maxSteps: base.maxSteps,
       onEvent: (e) => {
         // The report is the text of the last step.
         if (e.type === 'step-start') {

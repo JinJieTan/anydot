@@ -72,6 +72,7 @@ export interface RunAgentOptions {
   mode: PermissionMode | (() => PermissionMode)
   /** Session-scoped "always allow" keys; mutated when the user picks allow-always. */
   allowed?: Set<string>
+  /** Unlimited when unset; the user stops a run with the abort signal. */
   maxSteps?: number
   /** Summarise the history once a step's input exceeds this many tokens. */
   compactAtTokens?: number
@@ -160,7 +161,7 @@ const ABORTED = 'Stopped by the user before this ran.'
 
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const { ctx, onEvent } = opts
-  const maxSteps = opts.maxSteps ?? 50
+  const maxSteps = opts.maxSteps ?? Infinity
   const allowed = opts.allowed ?? new Set<string>()
   const toolSet = opts.tools.length ? defineTools(opts.tools.map((t) => t.definition)) : undefined
   const byName = new Map(opts.tools.map((t) => [t.definition.name, t]))
