@@ -94,6 +94,8 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
         <div class="grid2">
           <label class="field"><span>每个 IP 每分钟最多请求</span><input name="perMinute" type="number" min="1" required></label>
           <label class="field"><span>每个 IP 每天最多请求</span><input name="perDay" type="number" min="1" required></label>
+          <label class="field"><span>每次输入上限（token，含整段对话历史和附件，按字数估算）</span><input name="maxInputTokens" type="number" min="1" required></label>
+          <label class="field"><span>每次输出上限（token，含思考；超过就停，不会多扣费）</span><input name="maxOutputTokens" type="number" min="1" required></label>
         </div>
         <div class="row"><button class="primary">保存</button><span id="llmMsg" class="grow"></span></div>
       </form>
@@ -261,6 +263,8 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     lf.models.value = d.models.join('\\n')
     lf.perMinute.value = d.perMinute
     lf.perDay.value = d.perDay
+    lf.maxInputTokens.value = d.maxInputTokens
+    lf.maxOutputTokens.value = d.maxOutputTokens
     $('llmKeyHint').textContent = d.hasKey ? '（当前 ' + d.keyHint + '）' : '（未设置）'
     $('llmToday').textContent = '今天 ' + d.today.requests + ' 次请求 · ' + d.today.ips + ' 个 IP · 拒绝 ' + d.today.rejected + ' 次'
   }
@@ -329,6 +333,8 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
       models: f.models.value.split(/[\\s,]+/),
       perMinute: f.perMinute.value,
       perDay: f.perDay.value,
+      maxInputTokens: f.maxInputTokens.value,
+      maxOutputTokens: f.maxOutputTokens.value,
     }).then(function (s) {
       render(s)
       $('llmMsg').style.color = ''

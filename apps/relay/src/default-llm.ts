@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { capOutputTokens, estimateInputTokens } from './token-limits'
 
 /**
  * The web app's built-in "AnyDot 默认" provider: the browser calls
@@ -22,6 +23,10 @@ export interface DefaultLlmConfig {
   perDay: number
   /** Also serve requests that don't come from the web app's pages (desktop app, scripts). */
   allowDesktop: boolean
+  /** Estimated input tokens per chat request (whole history + attachments). */
+  maxInputTokens: number
+  /** Output tokens per chat request, thinking included; enforced by rewriting the request. */
+  maxOutputTokens: number
 }
 
 export interface DefaultLlmState extends Omit<DefaultLlmConfig, 'apiKey'> {
@@ -38,6 +43,8 @@ const DEFAULTS: DefaultLlmConfig = {
   perMinute: 10,
   perDay: 200,
   allowDesktop: false,
+  maxInputTokens: 110_000,
+  maxOutputTokens: 15_000,
 }
 
 /** Paths under /v1 the web app uses; anything else is refused. */
@@ -50,6 +57,8 @@ const ALLOWED = [
   /^\/videos$/,
   /^\/videos\/[\w.-]+(\/content)?$/,
 ]
+/** Chat endpoints, whose bodies are JSON and get the token limits. */
+const CHAT_PATHS = new Set(['/chat/completions', '/responses', '/messages'])
 /** Request headers passed through to the upstream. Auth is replaced. */
 const PASS_REQUEST = ['content-type', 'accept', 'anthropic-version', 'anthropic-beta']
 /** Response headers passed back. Encoding/length dropped: fetch already decoded the body. */
@@ -131,6 +140,13 @@ export class DefaultLlm {
         throw new Error('次数限制必须是 1 到 1000000 之间的整数')
       next[k] = n
     }
+    for (const k of ['maxInputTokens', 'maxOutputTokens'] as const) {
+      if (patch[k] === undefined) continue
+      const n = Number(patch[k])
+      if (!Number.isInteger(n) || n < 1 || n > 10_000_000)
+        throw new Error('token 上限必须是 1 到 10000000 之间的整数')
+      next[k] = n
+    }
     if (patch.enabled !== undefined) next.enabled = !!patch.enabled
     if (patch.allowDesktop !== undefined) next.allowDesktop = !!patch.allowDesktop
     if (next.enabled && (!next.baseUrl || !next.apiKey))
@@ -195,8 +211,10 @@ export class DefaultLlm {
     if (url.pathname !== '/llm' && !url.pathname.startsWith('/llm/')) return false
     const fail = (status: number, message: string) => {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
-      // OpenAI-style error body, which the SDKs turn into a readable message.
-      res.end(JSON.stringify({ error: { message, type: 'anydot_default', code: status } }))
+      // OpenAI SDKs read error.message; Anthropic's also wants the top-level type.
+      res.end(
+        JSON.stringify({ type: 'error', error: { message, type: 'anydot_default', code: status } }),
+      )
       return true
     }
     const c = this.config
@@ -222,6 +240,22 @@ export class DefaultLlm {
       const model = modelOf(body, req.headers['content-type'] ?? '')
       if (c.models.length && (!model || !c.models.includes(model)))
         return fail(403, `默认服务不提供模型 ${model ?? '(未指定)'}，可用：${c.models.join('、')}`)
+      if (CHAT_PATHS.has(sub)) {
+        let json: Record<string, unknown>
+        try {
+          json = JSON.parse(body.toString('utf8')) as Record<string, unknown>
+          if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error()
+        } catch {
+          return fail(400, '请求格式错误')
+        }
+        const input = estimateInputTokens(json)
+        if (input > c.maxInputTokens)
+          return fail(
+            400,
+            `对话太长（约 ${input} token，默认服务上限 ${c.maxInputTokens}），请新建一个对话继续`,
+          )
+        if (capOutputTokens(sub, json, c.maxOutputTokens)) body = Buffer.from(JSON.stringify(json))
+      }
     }
     const denied = this.admit(ip, generation)
     if (denied) {

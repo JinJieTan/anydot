@@ -449,7 +449,8 @@ describe('relay admin', () => {
       auth: 'Bearer sk-server-secret-1234',
       xKey: 'sk-server-secret-1234',
     })
-    expect(JSON.parse(last.body)).toEqual({ model: 'cheap', stream: true })
+    // The output cap (default 15000) is written into the forwarded request.
+    expect(JSON.parse(last.body)).toEqual({ model: 'cheap', stream: true, max_tokens: 15_000 })
 
     expect((await chat('pricey')).status).toBe(403)
     expect((await llm('/files')).status).toBe(404)
@@ -480,5 +481,31 @@ describe('relay admin', () => {
       ((await desktopOn.json()) as { defaultLlm: { allowDesktop: boolean } }).defaultLlm,
     ).toMatchObject({ allowDesktop: true })
     expect((await bare()).status).toBe(200)
+
+    // Input over the limit is refused before it reaches the upstream.
+    await call('PUT', '/default-llm', { perDay: 1000, maxInputTokens: 10, maxOutputTokens: 300 })
+    const calls = seen.length
+    const long = await llm('/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'cheap',
+        messages: [{ role: 'user', content: '一二三四五六七八九十十一' }],
+      }),
+    })
+    expect(long.status).toBe(400)
+    expect(((await long.json()) as { error: { message: string } }).error.message).toContain('新建')
+    expect(seen.length).toBe(calls)
+    const short = await llm('/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'cheap',
+        max_tokens: 64_000,
+        messages: [{ role: 'user', content: '嗨' }],
+      }),
+    })
+    expect(short.status).toBe(200)
+    expect(JSON.parse(seen.at(-1)!.body)).toMatchObject({ max_tokens: 300 })
   })
 })
