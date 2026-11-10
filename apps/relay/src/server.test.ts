@@ -404,8 +404,11 @@ describe('relay admin', () => {
         headers: { 'content-type': 'text/event-stream' },
       })
     }
-    const { r, call } = await adminRelay({}, upstream)
-    const llm = (path: string, init?: RequestInit) => fetch(`${r.url}/llm/v1${path}`, init)
+    const { r, call } = await adminRelay({ publicUrl: 'https://anydot.app/ctl' }, upstream)
+    // What a browser on the web app adds by itself.
+    const web = { Origin: 'https://anydot.app' }
+    const llm = (path: string, init?: RequestInit) =>
+      fetch(`${r.url}/llm/v1${path}`, { ...init, headers: { ...web, ...init?.headers } })
     const chat = (model: string, headers: Record<string, string> = {}) =>
       llm('/chat/completions', {
         method: 'POST',
@@ -461,5 +464,21 @@ describe('relay admin', () => {
     const over = await chat('cheap')
     expect(over.status).toBe(429)
     expect(((await over.json()) as { error: { message: string } }).error.message).toContain('额度')
+
+    // Desktop and scripts (no browser headers, or another site) only when allowed.
+    const bare = () => fetch(`${r.url}/llm/v1/models`)
+    const elsewhere = () =>
+      fetch(`${r.url}/llm/v1/models`, { headers: { Origin: 'https://evil.example' } })
+    expect((await bare()).status).toBe(403)
+    expect((await elsewhere()).status).toBe(403)
+    const sameOrigin = await fetch(`${r.url}/llm/v1/models`, {
+      headers: { 'Sec-Fetch-Site': 'same-origin' },
+    })
+    expect(sameOrigin.status).toBe(200)
+    const desktopOn = await call('PUT', '/default-llm', { allowDesktop: true })
+    expect(
+      ((await desktopOn.json()) as { defaultLlm: { allowDesktop: boolean } }).defaultLlm,
+    ).toMatchObject({ allowDesktop: true })
+    expect((await bare()).status).toBe(200)
   })
 })

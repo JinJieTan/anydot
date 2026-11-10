@@ -90,7 +90,11 @@ export async function startRelay(
   })
 
   const feedback = new FeedbackStore(config.dataDir)
-  const defaultLlm = new DefaultLlm(config.dataDir, { fetch: opts.fetch, log })
+  const defaultLlm = new DefaultLlm(config.dataDir, {
+    fetch: opts.fetch,
+    log,
+    webOrigins: config.publicUrl ? [new URL(config.publicUrl).origin] : [],
+  })
   /** Pairing codes desktops registered, by normalized code. Memory only: they last minutes. */
   const offers = new Map<string, PairingOffer>()
   const lookups = new Map<string, number[]>()

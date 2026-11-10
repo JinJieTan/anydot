@@ -20,6 +20,8 @@ export interface DefaultLlmConfig {
   perMinute: number
   /** Generation requests per IP per day (server local date). */
   perDay: number
+  /** Also serve requests that don't come from the web app's pages (desktop app, scripts). */
+  allowDesktop: boolean
 }
 
 export interface DefaultLlmState extends Omit<DefaultLlmConfig, 'apiKey'> {
@@ -35,6 +37,7 @@ const DEFAULTS: DefaultLlmConfig = {
   models: [],
   perMinute: 10,
   perDay: 200,
+  allowDesktop: false,
 }
 
 /** Paths under /v1 the web app uses; anything else is refused. */
@@ -78,7 +81,12 @@ export class DefaultLlm {
 
   constructor(
     dataDir: string,
-    private readonly opts: { fetch?: typeof fetch; log?: (...a: unknown[]) => void } = {},
+    private readonly opts: {
+      fetch?: typeof fetch
+      log?: (...a: unknown[]) => void
+      /** Origins of the web app (e.g. https://anydot.app); localhost is always one. */
+      webOrigins?: string[]
+    } = {},
   ) {
     mkdirSync(dataDir, { recursive: true })
     this.file = join(dataDir, 'default-llm.json')
@@ -124,6 +132,7 @@ export class DefaultLlm {
       next[k] = n
     }
     if (patch.enabled !== undefined) next.enabled = !!patch.enabled
+    if (patch.allowDesktop !== undefined) next.allowDesktop = !!patch.allowDesktop
     if (next.enabled && (!next.baseUrl || !next.apiKey))
       throw new Error('启用前请先填写服务商地址和 Key')
     this.config = next
@@ -136,6 +145,27 @@ export class DefaultLlm {
     const today = localDay()
     if (this.day.date !== today)
       this.day = { date: today, perIp: new Map(), requests: 0, rejected: 0 }
+  }
+
+  /**
+   * Whether the request comes from the web app's pages, by the headers a
+   * browser sets itself. Anything else (the desktop app, scripts) counts as
+   * desktop. Not a security boundary: a script can send these headers too.
+   */
+  private fromWeb(req: IncomingMessage): boolean {
+    if (req.headers['sec-fetch-site'] === 'same-origin') return true
+    const allowed = (o: string | undefined) => {
+      if (!o) return false
+      try {
+        const u = new URL(o)
+        if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true
+        return (this.opts.webOrigins ?? []).includes(u.origin)
+      } catch {
+        return false
+      }
+    }
+    const referer = req.headers.referer
+    return allowed(req.headers.origin) || allowed(referer)
   }
 
   /** Records the request if allowed; returns an error message otherwise. */
@@ -172,6 +202,8 @@ export class DefaultLlm {
     const c = this.config
     if (!c.enabled || !c.baseUrl || !c.apiKey)
       return fail(503, '默认服务暂未开放，请添加自己的服务商')
+    if (!c.allowDesktop && !this.fromWeb(req))
+      return fail(403, '默认服务目前只在网页版 anydot.app/app 开放，请在设置里添加自己的服务商')
     const sub = url.pathname.startsWith(`${prefix}/`) ? url.pathname.slice(prefix.length) : ''
     if (!ALLOWED.some((r) => r.test(sub))) return fail(404, 'not found')
     if (req.method !== 'GET' && req.method !== 'POST') return fail(405, 'method not allowed')

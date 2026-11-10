@@ -57,7 +57,7 @@ location = /app/sw.js {
 
 ## 内置的「AnyDot 默认」服务商
 
-第一次打开时，worker 请求 `https://anydot.app/ctl/llm/v1/models`；中继开放了默认服务就自动加上「AnyDot 默认」服务商（每个浏览器只加一次，用户删了不会再加）。这个服务商的请求发到中继的 `/llm/v1/*`，由中继换上服务器上的 Key 再转发（`apps/relay/src/default-llm.ts`），Key 不会出现在浏览器里。地址、Key、允许的模型、每个 IP 每分钟和每天的次数在中继后台「网页版默认服务商」里配置。本地调试用 `VITE_DEFAULT_LLM_URL` 指向本地中继。
+第一次打开时，worker 请求 `https://anydot.app/ctl/llm/v1/models`；中继开放了默认服务就自动加上「AnyDot 默认」服务商（每个浏览器只加一次，用户删了不会再加）。这个服务商的请求发到中继的 `/llm/v1/*`，由中继换上服务器上的 Key 再转发（`apps/relay/src/default-llm.ts`），Key 不会出现在浏览器里。地址、Key、允许的模型、每个 IP 每分钟和每天的次数在中继后台「网页版默认服务商」里配置。本地调试用 `VITE_DEFAULT_LLM_URL` 指向本地中继。桌面端用同一段代码（`apps/desktop/src/shared/default-provider.ts`），后台勾了「同时开放给桌面端」才会加上；没勾时中继只认 anydot.app 页面发来的请求（看 `Sec-Fetch-Site` / `Origin` / `Referer`，脚本可以伪装，靠次数限制和令牌额度兜底）。
 
 nginx 里 `/ctl/llm/` 需要关掉缓冲，否则流式输出会被攒成一整块：
 

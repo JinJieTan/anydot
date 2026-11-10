@@ -17,6 +17,7 @@ import {
 } from './chrome-extension'
 import { WebSearch } from './search'
 import { ChatService } from './chat-service'
+import { seedDefaultProvider } from '../shared/default-provider'
 import { emit } from './events'
 import { ImageService } from './image-service'
 import { Logger } from './logger'
@@ -26,7 +27,7 @@ import { Notifier } from './notifier'
 import { RemoteService } from './remote-service'
 import { Scheduler } from './scheduler'
 import { ShellIntegration } from './shell-integration'
-import { decryptKey } from './secrets'
+import { decryptKey, encryptKey } from './secrets'
 import { Updater } from './updater'
 
 /** Serves local blobs to the renderer as aitech-blob://blob/<sha256>. */
@@ -281,6 +282,9 @@ if (!app.requestSingleInstanceLock()) {
       join(app.getPath('userData'), 'workspaces'),
     )
     images = new ImageService(s, blobs, (job) => emit('image', job), decryptKey)
+    void seedDefaultProvider(s, encryptKey)
+      .then((added) => added && emit('invalidate', { scope: 'all' }))
+      .catch((err: unknown) => console.warn('default provider:', err))
     void images.resume()
     remote = new RemoteService(
       s,

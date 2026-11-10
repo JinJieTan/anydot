@@ -86,7 +86,8 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
       <div class="row"><h2 style="margin:0">网页版默认服务商</h2><span class="grow"></span><span class="soft" id="llmToday"></span></div>
       <p class="soft">网页版内置的「AnyDot 默认」服务商走这里：浏览器请求 <code>/llm/v1</code>，中继换上下面的 Key 转发，Key 不会发到浏览器。不需要登录，按 IP 限次数；建议用一个有总额度上限的专用令牌。</p>
       <form id="llmForm">
-        <label class="row" style="margin-bottom:10px"><input name="enabled" type="checkbox" style="width:auto"> 开放给网页版用户</label>
+        <label class="row" style="margin-bottom:6px"><input name="enabled" type="checkbox" style="width:auto"> 开放给网页版用户</label>
+        <label class="row" style="margin-bottom:10px"><input name="allowDesktop" type="checkbox" style="width:auto"> 同时开放给桌面端（桌面端会自动添加「AnyDot 默认」；关闭时只认 anydot.app 网页发来的请求，脚本可以伪装，主要靠次数限制和令牌额度兜底）</label>
         <label class="field"><span>服务商 Base URL</span><input name="baseUrl" placeholder="https://aitechflux.com/v1"></label>
         <label class="field"><span>API Key <span id="llmKeyHint"></span></span><input name="apiKey" type="password" autocomplete="off" placeholder="留空则不修改"></label>
         <label class="field"><span>允许的模型（空格或换行分隔，留空表示不限）</span><textarea name="models" placeholder="gpt-5-mini claude-haiku-4-5"></textarea></label>
@@ -94,7 +95,7 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
           <label class="field"><span>每个 IP 每分钟最多请求</span><input name="perMinute" type="number" min="1" required></label>
           <label class="field"><span>每个 IP 每天最多请求</span><input name="perDay" type="number" min="1" required></label>
         </div>
-        <button class="primary">保存</button>
+        <div class="row"><button class="primary">保存</button><span id="llmMsg" class="grow"></span></div>
       </form>
     </section>
 
@@ -254,6 +255,7 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     $('accountForm').username.value = s.username
     var d = s.defaultLlm, lf = $('llmForm')
     lf.enabled.checked = d.enabled
+    lf.allowDesktop.checked = d.allowDesktop
     lf.baseUrl.value = d.baseUrl
     lf.apiKey.value = ''
     lf.models.value = d.models.join('\\n')
@@ -321,12 +323,20 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     var f = e.target
     call('PUT', '/default-llm', {
       enabled: f.enabled.checked,
+      allowDesktop: f.allowDesktop.checked,
       baseUrl: f.baseUrl.value,
       apiKey: f.apiKey.value,
       models: f.models.value.split(/[\\s,]+/),
       perMinute: f.perMinute.value,
       perDay: f.perDay.value,
-    }).then(function (s) { ok('已保存'); render(s) }).catch(fail)
+    }).then(function (s) {
+      render(s)
+      $('llmMsg').style.color = ''
+      $('llmMsg').textContent = '已保存'
+    }).catch(function (err) {
+      $('llmMsg').style.color = 'var(--warn)'
+      $('llmMsg').textContent = '保存失败：' + err.message
+    })
   }
   $('accountForm').onsubmit = function (e) {
     e.preventDefault()

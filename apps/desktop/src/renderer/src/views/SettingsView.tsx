@@ -158,8 +158,9 @@ function ProvidersTab() {
 /** The web build suggests our own gateway when adding a provider. */
 const WEB_DEFAULT_BASE_URL = 'https://aitechflux.com/v1'
 
-/** The web build's built-in provider, proxied by the relay with a server-side key. */
-const isBuiltInProvider = (baseUrl: string) => isWeb && /\/llm\/v1\/?$/.test(baseUrl)
+/** The built-in "AnyDot 默认" provider, proxied by the relay with a server-side key. */
+const isBuiltInProvider = (baseUrl: string) =>
+  /^(https:\/\/anydot\.app\/ctl|http:\/\/localhost:\d+)\/llm\/v1\/?$/.test(baseUrl)
 
 function ProviderForm({
   provider,

@@ -8,12 +8,15 @@
 import { newId } from '@aitech/core'
 import { Store } from '@aitech/db/browser'
 import { ImageService } from '../../../desktop/src/main/image-service'
+import {
+  DEFAULT_PROVIDER_URL,
+  seedDefaultProvider,
+} from '../../../desktop/src/shared/default-provider'
 import { loadSettings } from '../../../desktop/src/shared/handlers'
 import type { EventName, Events } from '../../../desktop/src/shared/ipc'
 import type { FromWorker, ToWorker, WorkerMethod } from '../protocol'
 import { WebBlobs } from './blobs'
 import { WebChatService } from './chat'
-import { seedDefaultProvider } from './default-provider'
 import { createHandlers } from './handlers'
 import { decryptKey, encryptKey, setPersistKeys } from './secrets'
 import { openDatabase } from './sqlite'
@@ -81,7 +84,10 @@ async function start() {
   }
   post({ type: 'ready', storage: opened.storage, reason: opened.reason })
 
-  void seedDefaultProvider(store, encryptKey)
+  // VITE_DEFAULT_LLM_URL points at a local relay in dev.
+  const defaultUrl =
+    (import.meta.env.VITE_DEFAULT_LLM_URL as string | undefined) ?? DEFAULT_PROVIDER_URL
+  void seedDefaultProvider(store, encryptKey, defaultUrl)
     .then((added) => added && emit('invalidate', { scope: 'all' }))
     .catch((err: unknown) => console.warn('default provider:', err))
 }
