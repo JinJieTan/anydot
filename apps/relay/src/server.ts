@@ -19,6 +19,7 @@ import {
 import { WebSocketServer, type WebSocket } from 'ws'
 import { AccessStore } from './access'
 import { createAdmin, readJson } from './admin'
+import { clientIp as resolveClientIp, trustedProxies } from './client-ip'
 import { FeedbackStore } from './feedback'
 import { admit, stillAdmitted, type Admission } from './auth'
 import type { RelayConfig } from './config'
@@ -77,6 +78,7 @@ export async function startRelay(
     log('web push disabled:', (err as Error).message)
   }
 
+  const trusted = trustedProxies(config.trustedProxies ?? [])
   const devices = new Map<string, Set<Conn>>()
   const perIp = new Map<string, number>()
   const access = new AccessStore(config.dataDir, {
@@ -221,13 +223,7 @@ export async function startRelay(
   })
 
   function clientIp(req: IncomingMessage): string {
-    // Behind nginx: trust the first X-Forwarded-For hop only from loopback.
-    const remote = req.socket.remoteAddress ?? ''
-    const fwd = req.headers['x-forwarded-for']
-    if (fwd && (remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1')) {
-      return String(fwd).split(',')[0]!.trim()
-    }
-    return remote
+    return resolveClientIp(req.socket.remoteAddress, req.headers['x-forwarded-for'], trusted)
   }
 
   function send(ws: WebSocket, frame: ServerFrame) {

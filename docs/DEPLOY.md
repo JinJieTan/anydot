@@ -10,6 +10,7 @@ docker build -f apps/relay/Dockerfile -t aitech-relay .
 docker run -d --name aitech-relay --restart unless-stopped \
   -p 127.0.0.1:8090:8090 -v aitech-relay-data:/data \
   -e PUBLIC_URL=https://api.example.com/ctl \
+  -e TRUSTED_PROXIES=172.16.0.0/12 \
   -e AUTH_MODE=upstream \
   -e ALLOWED_UPSTREAMS=https://api.example.com \
   aitech-relay
@@ -86,6 +87,9 @@ location /ctl/ {
 | `VAPID_SUBJECT`          | `mailto:admin@localhost` | Web Push 联系方式，建议改成你的邮箱       |
 | `MAX_CONNECTIONS_PER_IP` | `20`                     | 每个 IP 的连接数上限                      |
 | `MESSAGE_RATE`           | `50`                     | 每个连接每秒消息数上限                    |
+| `TRUSTED_PROXIES`        | 空                       | 除本机外还信任哪些反代的 `X-Forwarded-For`（IP 或 CIDR，逗号分隔） |
+
+> 用 Docker 发布端口时，nginx 连进来的地址是 Docker 网桥网关（如 `172.17.0.1`），不是 `127.0.0.1`。这时要设 `TRUSTED_PROXIES=172.16.0.0/12`，否则所有用户会被当成同一个 IP，共用上面的连接数和配对码查询限额。中继只取 `X-Forwarded-For` 的最后一段（反代自己写入的那一段），客户端伪造的前几段不起作用。
 
 ## 5. 资源占用
 

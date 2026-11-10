@@ -18,6 +18,8 @@ export interface RelayConfig {
   maxConnectionsPerIp: number
   /** Messages per second per connection (burst = 2×). */
   messageRate: number
+  /** Proxies (IPs or CIDRs) besides loopback whose X-Forwarded-For is believed. */
+  trustedProxies?: string[]
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RelayConfig {
@@ -40,5 +42,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RelayConfig
     vapidSubject: env.VAPID_SUBJECT ?? 'mailto:admin@localhost',
     maxConnectionsPerIp: Number(env.MAX_CONNECTIONS_PER_IP ?? 20),
     messageRate: Number(env.MESSAGE_RATE ?? 50),
+    trustedProxies: (env.TRUSTED_PROXIES ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   }
 }
