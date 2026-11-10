@@ -197,9 +197,9 @@ describe('relay admin', () => {
   const PASS = 'correct horse'
 
   /** A relay with its admin account set up; `call` uses the admin session. */
-  async function adminRelay(overrides: Partial<RelayConfig> = {}) {
+  async function adminRelay(overrides: Partial<RelayConfig> = {}, fetchImpl?: typeof fetch) {
     const logs: string[] = []
-    const r = await relay(overrides, undefined, (...a) => logs.push(a.join(' ')))
+    const r = await relay(overrides, fetchImpl, (...a) => logs.push(a.join(' ')))
     const raw = (method: string, path: string, body?: unknown, session = '') =>
       fetch(`${r.url}/admin/api${path}`, {
         method,
@@ -386,5 +386,80 @@ describe('relay admin', () => {
 
     for (let i = 0; i < 4; i++) await send({ message: `m${i}` })
     expect((await send({ message: 'one too many' })).status).toBe(429)
+  })
+
+  it('proxies the web default provider with the server-side key and per-IP limits', async () => {
+    const seen: { url: string; auth: string | null; xKey: string | null; body: string }[] = []
+    const upstream: typeof fetch = async (input, init) => {
+      const h = new Headers(init?.headers)
+      seen.push({
+        url: String(input),
+        auth: h.get('authorization'),
+        xKey: h.get('x-api-key'),
+        body: init?.body ? Buffer.from(init.body as Uint8Array).toString() : '',
+      })
+      if (String(input).endsWith('/models'))
+        return Response.json({ object: 'list', data: [{ id: 'cheap' }, { id: 'pricey' }] })
+      return new Response('data: {"ok":true}\n\ndata: [DONE]\n\n', {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    }
+    const { r, call } = await adminRelay({}, upstream)
+    const llm = (path: string, init?: RequestInit) => fetch(`${r.url}/llm/v1${path}`, init)
+    const chat = (model: string, headers: Record<string, string> = {}) =>
+      llm('/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer anydot-default',
+          ...headers,
+        },
+        body: JSON.stringify({ model, stream: true }),
+      })
+
+    // Off until the admin turns it on.
+    expect((await llm('/models')).status).toBe(503)
+    expect((await call('PUT', '/default-llm', { enabled: true })).status).toBe(400)
+    const saved = await call('PUT', '/default-llm', {
+      enabled: true,
+      baseUrl: 'https://gw.example.com',
+      apiKey: 'sk-server-secret-1234',
+      models: 'cheap',
+      perMinute: 2,
+      perDay: 100,
+    })
+    const state = (await saved.json()) as { defaultLlm: Record<string, unknown> }
+    expect(state.defaultLlm).toMatchObject({ baseUrl: 'https://gw.example.com/v1', hasKey: true })
+    expect(JSON.stringify(state)).not.toContain('sk-server-secret-1234')
+
+    // The model list is cut to the allowed models.
+    const models = (await (await llm('/models')).json()) as { data: { id: string }[] }
+    expect(models.data.map((m) => m.id)).toEqual(['cheap'])
+
+    const ok = await chat('cheap', { 'x-api-key': 'anydot-default', 'X-Forwarded-For': '1.2.3.4' })
+    expect(ok.status).toBe(200)
+    expect(ok.headers.get('content-type')).toBe('text/event-stream')
+    expect(await ok.text()).toContain('[DONE]')
+    const last = seen.at(-1)!
+    expect(last).toMatchObject({
+      url: 'https://gw.example.com/v1/chat/completions',
+      auth: 'Bearer sk-server-secret-1234',
+      xKey: 'sk-server-secret-1234',
+    })
+    expect(JSON.parse(last.body)).toEqual({ model: 'cheap', stream: true })
+
+    expect((await chat('pricey')).status).toBe(403)
+    expect((await llm('/files')).status).toBe(404)
+    // 1.2.3.4 above was another address: this one still has both of its 2 per minute.
+    expect((await chat('cheap')).status).toBe(200)
+    expect((await chat('cheap')).status).toBe(200)
+    expect((await chat('cheap')).status).toBe(429)
+
+    // An empty key in the form keeps the saved one.
+    await call('PUT', '/default-llm', { apiKey: '', perMinute: 100, perDay: 3 })
+    expect((await chat('cheap')).status).toBe(200)
+    const over = await chat('cheap')
+    expect(over.status).toBe(429)
+    expect(((await over.json()) as { error: { message: string } }).error.message).toContain('额度')
   })
 })

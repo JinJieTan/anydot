@@ -13,6 +13,7 @@ import type { EventName, Events } from '../../../desktop/src/shared/ipc'
 import type { FromWorker, ToWorker, WorkerMethod } from '../protocol'
 import { WebBlobs } from './blobs'
 import { WebChatService } from './chat'
+import { seedDefaultProvider } from './default-provider'
 import { createHandlers } from './handlers'
 import { decryptKey, encryptKey, setPersistKeys } from './secrets'
 import { openDatabase } from './sqlite'
@@ -79,6 +80,10 @@ async function start() {
     }
   }
   post({ type: 'ready', storage: opened.storage, reason: opened.reason })
+
+  void seedDefaultProvider(store, encryptKey)
+    .then((added) => added && emit('invalidate', { scope: 'all' }))
+    .catch((err: unknown) => console.warn('default provider:', err))
 }
 
 start().catch((err: unknown) =>

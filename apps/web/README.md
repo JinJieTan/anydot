@@ -53,4 +53,20 @@ location = /app/sw.js {
 
 `assets/` 下的文件名带哈希，可以长缓存。
 
-请求从用户浏览器直接发往他填的 Base URL，不经过 anydot.app，所以服务商需要允许跨域（new-api、OpenAI、Anthropic 都允许）。
+请求从用户浏览器直接发往用户自己填的 Base URL，不经过 anydot.app，所以服务商需要允许跨域（new-api、OpenAI、Anthropic 都允许）。
+
+## 内置的「AnyDot 默认」服务商
+
+第一次打开时，worker 请求 `https://anydot.app/ctl/llm/v1/models`；中继开放了默认服务就自动加上「AnyDot 默认」服务商（每个浏览器只加一次，用户删了不会再加）。这个服务商的请求发到中继的 `/llm/v1/*`，由中继换上服务器上的 Key 再转发（`apps/relay/src/default-llm.ts`），Key 不会出现在浏览器里。地址、Key、允许的模型、每个 IP 每分钟和每天的次数在中继后台「网页版默认服务商」里配置。本地调试用 `VITE_DEFAULT_LLM_URL` 指向本地中继。
+
+nginx 里 `/ctl/llm/` 需要关掉缓冲，否则流式输出会被攒成一整块：
+
+```nginx
+location /ctl/llm/ {
+    proxy_pass http://127.0.0.1:8090/llm/;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_buffering off;
+    proxy_read_timeout 600s;
+    client_max_body_size 30m;
+}
+```

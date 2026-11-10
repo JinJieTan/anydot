@@ -19,6 +19,7 @@ import {
 import { WebSocketServer, type WebSocket } from 'ws'
 import { AccessStore } from './access'
 import { createAdmin, readJson } from './admin'
+import { DefaultLlm } from './default-llm'
 import { clientIp as resolveClientIp, trustedProxies } from './client-ip'
 import { FeedbackStore } from './feedback'
 import { admit, stillAdmitted, type Admission } from './auth'
@@ -89,6 +90,7 @@ export async function startRelay(
   })
 
   const feedback = new FeedbackStore(config.dataDir)
+  const defaultLlm = new DefaultLlm(config.dataDir, { fetch: opts.fetch, log })
   /** Pairing codes desktops registered, by normalized code. Memory only: they last minutes. */
   const offers = new Map<string, PairingOffer>()
   const lookups = new Map<string, number[]>()
@@ -97,6 +99,7 @@ export async function startRelay(
   const admin = createAdmin({
     access,
     feedback,
+    defaultLlm,
     log,
     stats: () => {
       const conns = loggedIn()
@@ -140,6 +143,7 @@ export async function startRelay(
     res.setHeader('Access-Control-Allow-Origin', '*')
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Headers', '*')
+      res.setHeader('Access-Control-Max-Age', '86400')
       res.writeHead(204).end()
       return
     }
@@ -149,6 +153,7 @@ export async function startRelay(
       return
     }
     if (await admin(req, res, url, clientIp(req))) return
+    if (await defaultLlm.handle(req, res, url, clientIp(req))) return
     if (url.pathname === '/feedback' && req.method === 'POST') {
       let body: Record<string, unknown>
       try {

@@ -158,6 +158,9 @@ function ProvidersTab() {
 /** The web build suggests our own gateway when adding a provider. */
 const WEB_DEFAULT_BASE_URL = 'https://aitechflux.com/v1'
 
+/** The web build's built-in provider, proxied by the relay with a server-side key. */
+const isBuiltInProvider = (baseUrl: string) => isWeb && /\/llm\/v1\/?$/.test(baseUrl)
+
 function ProviderForm({
   provider,
   onSaved,
@@ -247,9 +250,11 @@ function ProviderForm({
         <Field
           label="API Key"
           hint={
-            provider?.hasKey
-              ? `已保存（${provider.keyHint}），留空表示不修改。${KEY_NOTE}`
-              : `${KEY_NOTE.slice(0, -1)}，不会上传。`
+            provider && isBuiltInProvider(provider.baseUrl)
+              ? 'AnyDot 提供的免费额度，不需要 Key，请求经 anydot.app 转发；有每日次数限制，用完可以添加自己的服务商。'
+              : provider?.hasKey
+                ? `已保存（${provider.keyHint}），留空表示不修改。${KEY_NOTE}`
+                : `${KEY_NOTE.slice(0, -1)}，不会上传。`
           }
         >
           <Input

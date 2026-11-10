@@ -83,6 +83,22 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     </section>
 
     <section>
+      <div class="row"><h2 style="margin:0">网页版默认服务商</h2><span class="grow"></span><span class="soft" id="llmToday"></span></div>
+      <p class="soft">网页版内置的「AnyDot 默认」服务商走这里：浏览器请求 <code>/llm/v1</code>，中继换上下面的 Key 转发，Key 不会发到浏览器。不需要登录，按 IP 限次数；建议用一个有总额度上限的专用令牌。</p>
+      <form id="llmForm">
+        <label class="row" style="margin-bottom:10px"><input name="enabled" type="checkbox" style="width:auto"> 开放给网页版用户</label>
+        <label class="field"><span>服务商 Base URL</span><input name="baseUrl" placeholder="https://aitechflux.com/v1"></label>
+        <label class="field"><span>API Key <span id="llmKeyHint"></span></span><input name="apiKey" type="password" autocomplete="off" placeholder="留空则不修改"></label>
+        <label class="field"><span>允许的模型（空格或换行分隔，留空表示不限）</span><textarea name="models" placeholder="gpt-5-mini claude-haiku-4-5"></textarea></label>
+        <div class="grid2">
+          <label class="field"><span>每个 IP 每分钟最多请求</span><input name="perMinute" type="number" min="1" required></label>
+          <label class="field"><span>每个 IP 每天最多请求</span><input name="perDay" type="number" min="1" required></label>
+        </div>
+        <button class="primary">保存</button>
+      </form>
+    </section>
+
+    <section>
       <div class="row"><h2 style="margin:0">用户反馈</h2><span class="grow"></span><span class="soft" id="feedbackCount"></span></div>
       <p class="soft">桌面端左下角“反馈”按钮提交的内容，最近的在最上面。</p>
       <div class="feedback" id="feedback"></div>
@@ -236,6 +252,15 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
     $('limitsForm').maxConnectionsPerIp.value = s.limits.maxConnectionsPerIp
     $('limitsForm').messageRate.value = s.limits.messageRate
     $('accountForm').username.value = s.username
+    var d = s.defaultLlm, lf = $('llmForm')
+    lf.enabled.checked = d.enabled
+    lf.baseUrl.value = d.baseUrl
+    lf.apiKey.value = ''
+    lf.models.value = d.models.join('\\n')
+    lf.perMinute.value = d.perMinute
+    lf.perDay.value = d.perDay
+    $('llmKeyHint').textContent = d.hasKey ? '（当前 ' + d.keyHint + '）' : '（未设置）'
+    $('llmToday').textContent = '今天 ' + d.today.requests + ' 次请求 · ' + d.today.ips + ' 个 IP · 拒绝 ' + d.today.rejected + ' 次'
   }
 
   function renderFeedback(r) {
@@ -290,6 +315,18 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
   $('limitsForm').onsubmit = function (e) {
     e.preventDefault()
     call('PUT', '/limits', fields(e.target)).then(function (s) { ok('已保存'); render(s) }).catch(fail)
+  }
+  $('llmForm').onsubmit = function (e) {
+    e.preventDefault()
+    var f = e.target
+    call('PUT', '/default-llm', {
+      enabled: f.enabled.checked,
+      baseUrl: f.baseUrl.value,
+      apiKey: f.apiKey.value,
+      models: f.models.value.split(/[\\s,]+/),
+      perMinute: f.perMinute.value,
+      perDay: f.perDay.value,
+    }).then(function (s) { ok('已保存'); render(s) }).catch(fail)
   }
   $('accountForm').onsubmit = function (e) {
     e.preventDefault()

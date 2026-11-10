@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AuthMode } from '@aitech/protocol'
 import { ENV_TOKEN_ID, type AccessStore, type Limits } from './access'
 import { ADMIN_PAGE } from './admin-page'
+import type { DefaultLlm, DefaultLlmState } from './default-llm'
 import type { FeedbackStore } from './feedback'
 
 export interface AdminStats {
@@ -27,6 +28,7 @@ export interface AdminState {
     connections: number
   }[]
   online: { desktops: number; mobiles: number }
+  defaultLlm: DefaultLlmState
 }
 
 const MODES: AuthMode[] = ['open', 'token', 'upstream']
@@ -45,6 +47,7 @@ const SETUP_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export function createAdmin(deps: {
   access: AccessStore
   feedback: FeedbackStore
+  defaultLlm: DefaultLlm
   stats: () => AdminStats
   /** Disconnect clients that are no longer admitted. */
   enforce: () => void
@@ -77,6 +80,7 @@ export function createAdmin(deps: {
         connections: stats.byToken[t.id] ?? 0,
       })),
       online: { desktops: stats.desktops, mobiles: stats.mobiles },
+      defaultLlm: deps.defaultLlm.state(),
     }
   }
 
@@ -231,6 +235,15 @@ export function createAdmin(deps: {
         patch[k] = n
       }
       access.setLimits(patch)
+      return json(200, state())
+    }
+
+    if (route === 'PUT /default-llm') {
+      try {
+        deps.defaultLlm.update(body)
+      } catch (err) {
+        return json(400, { error: (err as Error).message })
+      }
       return json(200, state())
     }
 
